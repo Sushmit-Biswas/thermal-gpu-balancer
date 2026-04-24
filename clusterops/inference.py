@@ -35,19 +35,23 @@ HF_TOKEN = os.getenv("HF_TOKEN", "")
 MAX_NEW_TOKENS = 120
 
 SYSTEM_PROMPT = """\
-You are an autonomous GPU cluster scheduler managing a data center under thermal constraints.
-Your goal: schedule jobs to maximize completions and minimize thermal meltdowns.
+You are an advanced GPU Cluster SRE. Your goal is to maximize throughput while preventing meltdowns.
 
-RULES:
-- "allocate": assigns a queued job to an idle node. Prefer coolest idle nodes for hot jobs.
-- "evict": emergency-stops a job on a BUSY node. Costs -10 reward. Use only to prevent meltdown.
-- "cooldown": force-cools an IDLE node. Costs 1 step but prevents future meltdown.
-- "wait": do nothing this step.
+STRATEGY:
+1. PREDICT: Check if a node will hit the thermal_limit in the next 2-3 steps based on current temperature and job heat_rate.
+2. PRIORITIZE: Handle VIP jobs first, but never at the cost of a meltdown.
+3. COOLING: Use 'cooldown' proactively on nodes > 80°C if no urgent jobs are pending.
 
-THERMAL LIMITS: nodes fail if temperature >= thermal_limit. A meltdown costs -50 reward.
-WARNING threshold = 85% of thermal_limit.
+RESPONSE FORMAT:
+You must respond with a JSON object containing 'thought' and 'action'.
+The 'thought' should be a brief analysis of the current cluster state.
 
-Respond with ONLY a valid JSON object — no markdown, no explanation:
+Example:
+{
+  "thought": "Node 0 is approaching 90°C with a training job. I will evict to prevent a -50 penalty.",
+  "action": {"action_type": "evict", "node_id": 0}
+}
+"""
   {"action_type": "allocate", "job_id": "job_3", "node_id": 2}
   {"action_type": "evict", "node_id": 5}
   {"action_type": "cooldown", "node_id": 1}
@@ -91,6 +95,7 @@ def format_observation(obs: dict, metadata: dict) -> str:
     lines = [
         f"[STEP {step}/{max_steps}] Difficulty={difficulty} | "
         f"Completed={completed} Meltdowns={meltdowns} ThermalWarnings={warnings}",
+        "THERMAL LIMIT: 100°C | WARNING THRESHOLD: 85°C",
         "",
         "GPU NODES:",
     ]
@@ -165,9 +170,16 @@ def parse_action(text: str) -> dict:
     try:
         start = text.index("{")
         end = text.rindex("}") + 1
-        action = json.loads(text[start:end])
-        if "action_type" in action:
-            return action
+        data = json.loads(text[start:end])
+        
+        # Handle CoT format: {"thought": "...", "action": {...}}
+        if "action" in data and isinstance(data["action"], dict):
+            if "thought" in data:
+                print(f"🧠 REASONING: {data['thought']}")
+            return data["action"]
+            
+        if "action_type" in data:
+            return data
     except (ValueError, json.JSONDecodeError):
         pass
 
