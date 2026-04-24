@@ -1,0 +1,23 @@
+spec_version: 1
+name: clusterops
+type: space
+runtime: fastapi
+app: server.app:app
+port: 8000
+
+metadata:
+  title: "ClusterOps: Thermal GPU Balancer"
+  emoji: "🔥"
+  description: >
+    A high-stakes data center scheduler simulation where an LLM agent must
+    allocate GPU training/inference jobs across a cluster of nodes while
+    managing adversarial thermal constraints and random hardware failures.
+  tags:
+    - openenv
+    - reinforcement-learning
+    - llm-agents
+    - gpu-scheduling
+    - thermal-management
+    - data-center
+    - control-systems
+  license: MIT
