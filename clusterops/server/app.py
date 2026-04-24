@@ -12,17 +12,17 @@ Exposes HTTP endpoints:
 
 import os
 import logging
+import sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 
-try:
-    from ..models import ClusteropsAction, ClusteropsObservation
-    from .clusterops_environment import ClusteropsEnvironment
-except (ImportError, SystemError):
-    from models import ClusteropsAction, ClusteropsObservation
-    from server.clusterops_environment import ClusteropsEnvironment
+# Ensure the parent directory is in the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from models import ClusteropsAction, ClusteropsObservation
+from server.clusterops_environment import ClusteropsEnvironment
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

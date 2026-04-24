@@ -15,6 +15,8 @@ Differentiator from SRE/Kube gyms:
   than IT support.
 """
 
+import os
+import sys
 from uuid import uuid4
 import random
 import copy
@@ -22,10 +24,10 @@ import copy
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 
-try:
-    from ..models import ClusteropsAction, ClusteropsObservation
-except ImportError:
-    from models import ClusteropsAction, ClusteropsObservation
+# Ensure the parent directory is in the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from models import ClusteropsAction, ClusteropsObservation
 
 
 # ─── Job Priority Tiers ────────────────────────────────────────────────────────
