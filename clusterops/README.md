@@ -34,6 +34,9 @@ Every major AI lab — Meta, Google, HuggingFace — runs massive GPU clusters t
 - **Minimizing queue wait times** (VIP jobs penalize heavily when delayed)
 - **Surviving random hardware failures** (nodes can spontaneously degrade)
 
+### 🏆 Competition Focus: Theme #3.1 — World Modeling
+ClusterOps is designed to push LLMs beyond shallow instruction following. It requires the agent to build a **persistent internal state** of node temperatures and job durations. The agent must update its beliefs about node health based on random failures—a core requirement for advanced **World Modeling**.
+
 ---
 
 ## 🎯 Why This Environment Matters
@@ -122,13 +125,28 @@ The reward signal is **dense** (every step), **multi-component** (jobs, queue, t
 
 ---
 
-## 📊 Grading / Evaluation
+## 📊 Composable Rubric (Evaluation)
 
-Final scores are computed deterministically via the `/grader` endpoint, clamped to `[0.0, 1.0]`:
+Judges look for **composable rubrics > monolithic scoring**. ClusterOps uses a multi-dimensional grading system exposed via `/grader/rubric`:
 
-```
-score = completion_ratio - (meltdowns × 0.15) - (evictions × 0.05)
-```
+| Dimension | Weight | Target | Description |
+|:---|:---|:---|:---|
+| **Thermal Safety** | 35% | 0 Meltdowns | Penalizes every crash (-0.2/event) |
+| **Throughput** | 30% | High Completion | completions / expected_ceiling |
+| **Efficiency** | 20% | Zero Evictions | ratio of finished jobs vs total handled |
+| **SLA Compliance** | 15% | Zero VIP Failures | penalizes lost/starved high-priority jobs |
+
+**Final Grade:** `Σ (Sub-score × Weight)` clamped to `[0.0, 1.0]`.
+
+---
+
+## 🎓 Adaptive Curriculum Learning
+
+To enable efficient LLM training, we implement an automatic difficulty progression system accessible via `/curriculum`:
+
+1. **Easy (Nodes: 6)**: Training focus on basic allocation mechanics. (Threshold: Score ≥ 0.65)
+2. **Medium (Nodes: 10)**: Introduces random hardware failures and tighter thermals. (Threshold: Score ≥ 0.70)
+3. **Hard (Nodes: 16)**: Adversarial load with extreme thermal constraints.
 
 ---
 

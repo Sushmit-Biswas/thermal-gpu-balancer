@@ -71,14 +71,17 @@ def run_smart_agent(difficulty="medium"):
     total_reward = 0
 
     while not done:
-        observation = resp.json().get("observation", {})
+        resp_data = resp.json()
+        observation = resp_data.get("observation", {})
+        metadata = resp_data.get("metadata", {})
         if not observation:
             print("Invalid observation received. Ending run.")
             break
 
         action, reason = choose_action(observation)
-        
-        print(f"Step {observation.get('metadata', {}).get('step', 'N/A')}: {reason}")
+
+        step_num = metadata.get("step", "N/A")
+        print(f"Step {step_num}: {reason}")
 
         resp = requests.post(f"{BASE_URL}/step", json=action)
         if not resp.ok:

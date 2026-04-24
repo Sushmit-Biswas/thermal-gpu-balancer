@@ -10,7 +10,7 @@ It must allocate GPU jobs while preventing thermal meltdowns.
 
 from typing import List, Dict, Any, Optional
 from openenv.core.env_server.types import Action, Observation
-from pydantic import Field
+from pydantic import Field, model_validator
 
 
 class ClusteropsAction(Action):
@@ -52,7 +52,7 @@ class ClusteropsObservation(Observation):
     )
     job_queue: List[Dict[str, Any]] = Field(
         ...,
-        description="Pending jobs. Each has: id, type (vip_training/inference/batch), duration, wait_time.",
+        description="Pending jobs. Each has: id, type (vip_training/inference/batch), duration, wait_time, deadline.",
     )
     thermal_warnings: int = Field(
         default=0,
@@ -69,4 +69,18 @@ class ClusteropsObservation(Observation):
     feedback: str = Field(
         default="",
         description="Textual feedback describing the result of the last action.",
+    )
+
+    # Step-level fields populated by the server per-step
+    reward: Optional[float] = Field(
+        default=None,
+        description="Reward received for the last action.",
+    )
+    done: bool = Field(
+        default=False,
+        description="Whether the episode has ended.",
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Extra metadata: step count, difficulty, totals, etc.",
     )

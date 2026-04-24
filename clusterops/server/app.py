@@ -13,10 +13,11 @@ Exposes HTTP endpoints:
 import os
 import logging
 import sys
-from fastapi import FastAPI
+from typing import Optional, List, Dict, Any
+from uuid import uuid4
+from fastapi import FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
 
 # Ensure the parent directory is in the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -54,6 +55,12 @@ class StepResponse(BaseModel):
 
 class GraderResponse(BaseModel):
     score: float = 0.0
+    # Composable rubric sub-scores
+    thermal_safety: float = 0.0
+    throughput: float = 0.0
+    efficiency: float = 0.0
+    sla_compliance: float = 0.0
+    # Raw counters
     completed_jobs: int = 0
     meltdowns: int = 0
     evictions: int = 0
@@ -77,8 +84,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global singleton environment instance
-env = ClusteropsEnvironment()
+# Per-session environment store — enables SUPPORTS_CONCURRENT_SESSIONS
+_sessions: Dict[str, ClusteropsEnvironment] = {}
+_DEFAULT_SESSION = "default"
+_sessions[_DEFAULT_SESSION] = ClusteropsEnvironment()
+
+
+def _get_env(session_id: Optional[str]) -> ClusteropsEnvironment:
+    """Return the env for a given session ID, falling back to the default."""
+    sid = session_id or _DEFAULT_SESSION
+    if sid not in _sessions:
+        _sessions[sid] = ClusteropsEnvironment()
+    return _sessions[sid]
 
 
 @app.get("/")
@@ -104,9 +121,87 @@ async def health():
     return {"status": "ok", "environment": "clusterops"}
 
 
+@app.get("/schema")
+async def schema():
+    """Return JSON schemas for actions and observations."""
+    return {
+        "action": {
+            "title": "ClusteropsAction",
+            "description": "Agent action for the ClusterOps scheduler.",
+            "type": "object",
+            "properties": {
+                "action_type": {
+                    "type": "string",
+                    "enum": ["allocate", "evict", "cooldown", "wait"],
+                    "description": "Type of action to execute.",
+                },
+                "job_id": {
+                    "type": "string",
+                    "description": "ID of the job to allocate (required for 'allocate').",
+                    "default": "",
+                },
+                "node_id": {
+                    "type": "integer",
+                    "description": "Target node index (required for 'allocate', 'evict', 'cooldown').",
+                    "default": -1,
+                },
+            },
+            "required": ["action_type"],
+        },
+        "observation": {
+            "title": "ClusteropsObservation",
+            "description": "Full cluster state returned after each step.",
+            "type": "object",
+            "properties": {
+                "gpu_nodes": {
+                    "type": "array",
+                    "description": "List of GPU nodes with id, status, temperature, job_id, job_type, job_duration_remaining.",
+                    "items": {"type": "object"},
+                },
+                "job_queue": {
+                    "type": "array",
+                    "description": "Pending jobs with id, type, duration, wait_time.",
+                    "items": {"type": "object"},
+                },
+                "thermal_warnings": {
+                    "type": "integer",
+                    "description": "Nodes exceeding 85%% of the thermal limit.",
+                },
+                "meltdowns": {
+                    "type": "integer",
+                    "description": "Cumulative thermal meltdown events.",
+                },
+                "completed_jobs": {
+                    "type": "integer",
+                    "description": "Cumulative successfully finished jobs.",
+                },
+                "feedback": {
+                    "type": "string",
+                    "description": "Textual feedback on the last action.",
+                },
+                "reward": {"type": "number", "description": "Step reward."},
+                "done": {"type": "boolean", "description": "Episode ended flag."},
+                "metadata": {"type": "object", "description": "Extra info: step, difficulty, totals."},
+            },
+        },
+        "job_types": {
+            "vip_training": {"heat_rate": 15.0, "reward_on_complete": 40.0, "queue_penalty": -2.0},
+            "inference": {"heat_rate": 8.0, "reward_on_complete": 15.0, "queue_penalty": -0.5},
+            "batch": {"heat_rate": 5.0, "reward_on_complete": 8.0, "queue_penalty": -0.2},
+        },
+        "node_statuses": ["idle", "busy", "cooldown", "failed"],
+        "difficulty_levels": ["easy", "medium", "hard"],
+    }
+
+
 @app.post("/reset", response_model=StepResponse)
-async def reset(request: ResetRequest = ResetRequest()):
-    logger.info(f"Resetting environment (difficulty={request.difficulty})")
+async def reset(
+    request: ResetRequest = ResetRequest(),
+    x_session_id: Optional[str] = Header(default=None),
+):
+    sid = x_session_id or _DEFAULT_SESSION
+    logger.info(f"Resetting environment (difficulty={request.difficulty}, session={sid})")
+    env = _get_env(sid)
     obs = env.reset(difficulty=request.difficulty)
     return StepResponse(
         observation=ObservationResponse(
@@ -124,7 +219,11 @@ async def reset(request: ResetRequest = ResetRequest()):
 
 
 @app.post("/step", response_model=StepResponse)
-async def step(request: StepRequest):
+async def step(
+    request: StepRequest,
+    x_session_id: Optional[str] = Header(default=None),
+):
+    env = _get_env(x_session_id)
     action = ClusteropsAction(
         action_type=request.action_type,
         job_id=request.job_id,
@@ -147,7 +246,8 @@ async def step(request: StepRequest):
 
 
 @app.get("/state")
-async def state():
+async def state(x_session_id: Optional[str] = Header(default=None)):
+    env = _get_env(x_session_id)
     s = env.state
     return {
         "episode_id": s.episode_id,
@@ -158,16 +258,29 @@ async def state():
 
 
 @app.post("/grader", response_model=GraderResponse)
-async def grader():
-    score = env.grade()
-    return GraderResponse(
-        score=score,
-        completed_jobs=env.completed_jobs,
-        meltdowns=env.meltdowns,
-        evictions=env.evictions,
-        failed_jobs=env.failed_jobs,
-        total_reward=round(env.total_reward, 2),
-    )
+async def grader(x_session_id: Optional[str] = Header(default=None)):
+    env = _get_env(x_session_id)
+    rubric = env.grade_rubric()
+    return GraderResponse(**rubric)
+
+
+@app.get("/grader/rubric")
+async def grader_rubric(x_session_id: Optional[str] = Header(default=None)):
+    """Return full composable rubric breakdown for the current episode."""
+    env = _get_env(x_session_id)
+    return env.grade_rubric()
+
+
+@app.get("/curriculum")
+async def curriculum(x_session_id: Optional[str] = Header(default=None)):
+    """Suggest the next difficulty level based on current episode performance."""
+    env = _get_env(x_session_id)
+    return {
+        "current_difficulty": env.difficulty,
+        "suggested_next": env.curriculum_difficulty(),
+        "current_score": env.grade(),
+        "thresholds": {"easy_to_medium": 0.65, "medium_to_hard": 0.70},
+    }
 
 
 def main(host: str = "0.0.0.0", port: int = 8000):
