@@ -29,6 +29,9 @@ import requests
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend for saving plots
 import matplotlib.pyplot as plt
+import gymnasium as gym
+from stable_baselines3 import PPO
+from clusterops_gym_env import ClusterOpsEnv
 
 # ─── Configuration ──────────────────────────────────────────────────────────────
 ENV_URL = os.getenv("ENVIRONMENT_BASE_URL", "http://localhost:8000")

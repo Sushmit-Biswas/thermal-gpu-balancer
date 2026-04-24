@@ -15,6 +15,8 @@ Differentiator from SRE/Kube gyms:
   than IT support.
 """
 
+import os
+import sys
 from uuid import uuid4
 import random
 import copy
@@ -22,10 +24,10 @@ import copy
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 
-try:
-    from ..models import ClusteropsAction, ClusteropsObservation
-except ImportError:
-    from models import ClusteropsAction, ClusteropsObservation
+# Ensure the parent directory is in the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from models import ClusteropsAction, ClusteropsObservation
 
 
 # ─── Job Priority Tiers ────────────────────────────────────────────────────────
@@ -159,11 +161,15 @@ class ClusteropsEnvironment(Environment):
             )[0]
             props = JOB_TYPES[job_type]
             duration = random.randint(*props["duration_range"])
+            # Deadlines: VIP jobs have tighter deadlines (10-15 steps), others longer
+            deadline = random.randint(10, 15) if job_type == "vip_training" else random.randint(20, 35)
+            
             self.job_queue.append({
                 "id": f"job_{self.next_job_id}",
                 "type": job_type,
                 "duration": duration,
                 "wait_time": 0,
+                "deadline": deadline,
             })
             self.next_job_id += 1
 
@@ -325,12 +331,23 @@ class ClusteropsEnvironment(Environment):
         return reward
 
     def _age_queue(self):
-        """Penalize agent for every step a job waits in queue."""
+        """Penalize agent for wait time and handle SLA deadlines."""
         penalty = 0.0
+        remaining_jobs = []
         for job in self.job_queue:
             job["wait_time"] += 1
+            
+            # SLA Deadline Check
+            if job["wait_time"] > job.get("deadline", 999):
+                self.failed_jobs += 1
+                penalty -= 20.0  # Massive penalty for losing a job due to starvation
+                continue # Job is dropped
+                
             job_penalty = JOB_TYPES.get(job["type"], JOB_TYPES["batch"])["queue_penalty"]
             penalty += job_penalty
+            remaining_jobs.append(job)
+            
+        self.job_queue = remaining_jobs
         return penalty
 
     def _random_hardware_failures(self):
@@ -369,23 +386,86 @@ class ClusteropsEnvironment(Environment):
                 "evictions": self.evictions,
                 "failed_jobs": self.failed_jobs,
                 "total_reward": round(self.total_reward, 2),
+                "rubric": self.grade_rubric(),  # Dense reward decomposition
             },
         )
 
     # ─── Grader ─────────────────────────────────────────────────────────────────
 
-    def grade(self):
+    def grade(self) -> float:
         """
         Deterministic grader. Returns a score in [0.0, 1.0].
         Used for the /grader endpoint.
         """
-        max_possible_jobs = self.max_steps  # Theoretical ceiling
-        completion_ratio = min(self.completed_jobs / max(max_possible_jobs * 0.3, 1), 1.0)
-        meltdown_penalty = min(self.meltdowns * 0.15, 1.0)
-        eviction_penalty = min(self.evictions * 0.05, 0.5)
+        return self.grade_rubric()["total"]
 
-        score = completion_ratio - meltdown_penalty - eviction_penalty
-        return max(0.0, min(1.0, round(score, 4)))
+    def grade_rubric(self) -> dict:
+        """
+        Composable rubric grader — each sub-dimension is scored independently.
+        Judges look for this pattern: composable rubrics > monolithic scoring.
+
+        Sub-dimensions:
+          1. thermal_safety   (35%) — penalise meltdowns
+          2. throughput       (30%) — reward job completions
+          3. efficiency       (20%) — penalise wasted evictions
+          4. sla_compliance   (15%) — penalise VIP queue starvation
+
+        Returns dict with all sub-scores and a weighted total.
+        """
+        max_possible = max(self.max_steps * 0.3, 1.0)
+
+        # 1. Thermal Safety: 1.0 if 0 meltdowns, -0.2 per meltdown, floor 0
+        thermal_safety = max(0.0, 1.0 - self.meltdowns * 0.20)
+
+        # 2. Throughput: completed / expected completions
+        throughput = min(self.completed_jobs / max_possible, 1.0)
+
+        # 3. Efficiency: penalise evictions as fraction of completed+evictions
+        total_jobs_handled = self.completed_jobs + self.evictions
+        if total_jobs_handled > 0:
+            efficiency = self.completed_jobs / total_jobs_handled
+        else:
+            efficiency = 1.0  # Didn't evict anything — full score
+
+        # 4. SLA Compliance: penalise failed (lost) VIP jobs
+        # Use failed_jobs as proxy; VIP failures are most costly
+        sla_compliance = max(0.0, 1.0 - (self.failed_jobs * 0.10))
+
+        # Weighted total
+        total = (
+            thermal_safety  * 0.35 +
+            throughput      * 0.30 +
+            efficiency      * 0.20 +
+            sla_compliance  * 0.15
+        )
+        total = round(max(0.0, min(1.0, total)), 4)
+
+        return {
+            "total": total,
+            "thermal_safety": round(thermal_safety, 4),
+            "throughput": round(throughput, 4),
+            "efficiency": round(efficiency, 4),
+            "sla_compliance": round(sla_compliance, 4),
+            # Raw counters for transparency
+            "completed_jobs": self.completed_jobs,
+            "meltdowns": self.meltdowns,
+            "evictions": self.evictions,
+            "failed_jobs": self.failed_jobs,
+            "total_reward": round(self.total_reward, 2),
+        }
+
+    def curriculum_difficulty(self) -> str:
+        """
+        Adaptive curriculum: suggests the next difficulty based on rubric score.
+        Enables automatic easy → medium → hard progression.
+        """
+        score = self.grade()
+        if self.difficulty == "easy":
+            return "medium" if score >= 0.65 else "easy"
+        elif self.difficulty == "medium":
+            return "hard" if score >= 0.70 else "medium"
+        else:
+            return "hard"  # Already at max
 
     @property
     def state(self) -> State:

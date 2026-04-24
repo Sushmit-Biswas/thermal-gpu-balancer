@@ -5,6 +5,19 @@ runtime: fastapi
 app: server.app:app
 port: 8000
 
+environment:
+  reset_endpoint: /reset
+  step_endpoint: /step
+  state_endpoint: /state
+  grader_endpoint: /grader
+  schema_endpoint: /schema
+  health_endpoint: /health
+  difficulties:
+    - easy
+    - medium
+    - hard
+  concurrent_sessions: true
+
 metadata:
   title: "ClusterOps: Thermal GPU Balancer"
   emoji: "🔥"

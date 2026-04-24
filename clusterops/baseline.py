@@ -90,10 +90,11 @@ def run_baseline(difficulty="medium"):
     print(f"\n--- Episode Complete ---")
     print(f"  Total Steps:    {step_num}")
     print(f"  Total Reward:   {total_reward:.1f}")
-    print(f"  Jobs Completed: {obs_data.get('completed_jobs', 0)}")
-    print(f"  Meltdowns:      {obs_data.get('meltdowns', 0)}")
-    print(f"  Queue Left:     {len(obs_data.get('job_queue', []))}")
-    print(f"  Grade:          {grade_resp.get('score', 0.0):.4f}")
+    print(f"  Final Grade:    {grade_resp.get('score', 0.0):.4f}")
+    print(f"  └─ Safety:      {grade_resp.get('thermal_safety', 0.0):.3f}")
+    print(f"  └─ Throughput:  {grade_resp.get('throughput', 0.0):.3f}")
+    print(f"  └─ Efficiency:  {grade_resp.get('efficiency', 0.0):.3f}")
+    print(f"  └─ SLA:         {grade_resp.get('sla_compliance', 0.0):.3f}")
     print(f"{'='*60}\n")
 
     return total_reward
