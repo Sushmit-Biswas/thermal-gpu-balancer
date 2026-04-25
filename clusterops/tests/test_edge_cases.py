@@ -2,8 +2,14 @@
 Extensive Edge Case Test Suite for ClusterOps.
 Pushes the boundaries of the physics engine and state machine.
 """
+import sys
+import os
 import pytest
 import random
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "server")))
+
 from server.clusterops_environment import ClusteropsEnvironment, JOB_TYPES
 from models import ClusteropsAction
 

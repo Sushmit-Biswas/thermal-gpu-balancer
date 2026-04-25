@@ -79,7 +79,7 @@ def run_groq_test():
     
     try:
         print("--- Resetting environment ---", flush=True)
-        resp = requests.post(f"{ENV_URL}/reset", json={"difficulty": "easy"}, timeout=10)
+        resp = requests.post(f"{ENV_URL}/reset", json={"difficulty": "expert"}, timeout=10)
         obs = resp.json()["observation"]
         
         for i in range(1, 11): # 10 steps for a real report
