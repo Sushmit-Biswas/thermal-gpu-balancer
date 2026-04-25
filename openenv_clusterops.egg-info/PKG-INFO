@@ -1,0 +1,21 @@
+Metadata-Version: 2.4
+Name: openenv-clusterops
+Version: 0.1.0
+Summary: ClusterOps: Thermal GPU Balancer environment for OpenEnv
+Requires-Python: >=3.10
+Requires-Dist: openenv-core[core]>=0.2.2
+Requires-Dist: fastapi>=0.111.0
+Requires-Dist: uvicorn>=0.30.0
+Requires-Dist: pydantic>=2.7.0
+Requires-Dist: requests>=2.31.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0.0; extra == "dev"
+Requires-Dist: httpx>=0.27.0; extra == "dev"
+Provides-Extra: training
+Requires-Dist: gymnasium>=0.29.0; extra == "training"
+Requires-Dist: numpy>=1.24.0; extra == "training"
+Requires-Dist: matplotlib>=3.7.0; extra == "training"
+Requires-Dist: stable-baselines3>=2.0.0; extra == "training"
+Requires-Dist: torch>=2.0.0; extra == "training"
+Requires-Dist: transformers>=4.40.0; extra == "training"

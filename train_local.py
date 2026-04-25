@@ -55,6 +55,9 @@ def start_server():
     time.sleep(5)
 
 
+# --- Step 1: Start Server ---
+start_server()
+
 # --- Step 2: Load Model ---
 print(f"Loading model {MODEL_NAME}...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, token=HF_TOKEN)
@@ -114,7 +117,7 @@ def run_episode(difficulty="easy", scenario="01_baseline"):
 
 
 # --- Execution ---
-start_server()
+
 for ep in range(3):
     print(f"\nEpisode {ep+1} starting...")
     reward = run_episode()

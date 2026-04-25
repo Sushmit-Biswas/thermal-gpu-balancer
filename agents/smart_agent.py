@@ -10,7 +10,7 @@ import requests
 
 ENV_URL = os.getenv("ENVIRONMENT_BASE_URL", "http://localhost:8000")
 PROACTIVE_COOLING_THRESHOLD = 60.0
-EMERGENCY_EVICTION_THRESHOLD = 85.0
+EMERGENCY_EVICTION_THRESHOLD = 92.0
 
 
 def choose_action(observation):
