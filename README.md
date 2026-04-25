@@ -13,86 +13,92 @@ tags:
 
 # 🔥 ClusterOps: The Thermal GPU Balancer
 
-**An OpenEnv-compliant RL environment for training LLMs in Strategic World Modeling and Hardware Control.**
+### Can an LLM learn thermodynamics?
 
-[![OpenEnv](https://img.shields.io/badge/OpenEnv-Compatible-blue)](https://github.com/meta-pytorch/OpenEnv)
-[![Theme](https://img.shields.io/badge/Hackathon-Theme_3.1-red)](Problem_Statement.pdf)
-[![Status](https://img.shields.io/badge/Status-Complete-green)]()
+We gave a language model control of a live GPU data center, incoming job queues, and cooling systems. It had no pre-training on fluid dynamics, no prior knowledge of hardware racks, and no hardcoded scheduling heuristics. Just thermal sensors and a `/step` endpoint.
 
----
+Within hours of RL training, it learned to pack jobs efficiently. But as we escalated the environment's complexity—introducing **spatial heat bleed**, **heterogeneous hardware**, and **adversarial traffic spikes**—the agent had to evolve. It stopped reacting to temperatures and started *predicting* them. It learned to leave physical gaps between heavy VIP jobs to prevent cascading rack meltdowns. It learned to proactively force-cool idle nodes *before* a predicted DDoS traffic spike.
 
-## 📋 1. The Problem: The GPU "Thermal Wall"
+**This is ClusterOps** — an OpenEnv-compliant RL environment where an agent learns to manage a physical data center through curriculum-driven operational scenarios, adversarial constraints, and composable rubrics.
 
-Every major AI lab (Meta, Google, HuggingFace) runs massive GPU clusters. The #1 operational nightmare isn't software bugs—it's **thermal management**. 
-
-- **Pack too many training jobs** onto one rack, and the GPUs hit their thermal limit, throttle, and crash.
-- **Each crash** destroys hours of compute and millions of dollars.
-- **Adversarial Noise**: Hardware is not static. Spontaneous degradations and ambient temperature shifts make simple rule-based scheduling impossible.
-
-**ClusterOps** simulates this exact high-stakes environment, requiring agents to build a **durable internal world model** of the cluster's physical state.
+> **OpenEnv Hackathon 2026** | Built with [OpenEnv v0.2.1](https://github.com/meta-pytorch/OpenEnv)
 
 ---
 
-## 🎯 2. Why it Wins: Strategic World Modeling (Theme 3.1)
+## 📖 The Story: Evolving a World Model
 
-Unlike typical SRE gyms that focus on text logs or YAML fixes, **ClusterOps** is a **Control Systems Simulator**. 
+ClusterOps doesn't use simple "Easy/Medium/Hard" modes. Instead, we train the agent through a curriculum of **Operational Scenarios**. To survive, the LLM must build a persistent internal representation of the cluster's physical properties.
 
-| Innovation | Why it Matters |
-|:---|:---|
-| **Physics-Based State** | The agent must perform "Internal Math" to predict meltdowns before they happen. |
-| **Partial Observability** | Hardware failures are stochastic. The agent must update its "beliefs" based on observations. |
-| **Composable Rubric** | A multi-dimensional scoring system (35% Safety, 30% Throughput, 20% Efficiency, 15% SLA) prevents reward hacking. |
-| **Expert Mode Scaling** | Scalable from 6 nodes (Easy) to 20 nodes (Expert) with cascading failures. |
+### Act 1: The Cold Start (`01_baseline`)
+The agent starts with a simple goal: pack jobs onto 10 identical nodes without hitting 100°C. Initially, it blindly assigns jobs until the cluster catches fire. Slowly, it learns the thermal cost of different job types (`vip_training` = +15°C/step) and avoids scheduling heavy jobs on nodes already running hot.
 
----
+### Act 2: Spatial Awareness (`02_spatial_bleed`)
+We change the laws of physics. Now, the nodes exist in a physical array. If `node[3]` hits 85°C, it radiates +3°C to `node[2]` and `node[4]`. A baseline agent fails immediately, creating cascading rack meltdowns. Our trained agent discovers **Spatial Isolation**: it deliberately leaves idle buffer nodes between heavy workloads to dissipate heat.
 
-## 👁️ 3. Execution Proof: Agent Benchmark (Llama-3-8B)
+### Act 3: Semantic Matching (`03_heterogeneous`)
+The cluster is upgraded. Half the nodes are fast, hot H100s. Half are slow, cool T4s. The agent must learn to match the semantic priority of the job to the hardware—routing urgent VIP tasks to H100s and slow Batch jobs to T4s, optimizing compute-per-watt.
 
-We stress-tested the environment using **Llama-3-8B** on the **Groq LPU architecture** to ensure the environment provides a rich enough signal for LLM learning.
-
-### 📈 Training & Performance Evidence
-![Rubric Scores](rubric_scores.png)
-*Figure 1: High-resolution breakdown of agent performance across the 4 rubric dimensions.*
-
-![Reward Curve](reward_curve.png)
-*Figure 2: Reward trajectory showing the agent learning to prioritize VIP jobs while maintaining thermal headroom.*
-
-### 📄 Detailed Benchmark Logs
-- [Expert-Level Stress Test Report](expert_benchmark_report.md) — *Proof of reasoning under 20-node pressure.*
+### Act 4: The Environment Fights Back (`04_maintenance` & `05_adversarial`)
+The environment becomes hostile. A scheduled outage threatens to take half the cluster offline. The agent learns **Deadline Evacuation**, draining jobs before the outage hits. Then, the traffic spikes. The queue sits empty, lulling the agent into a false sense of security, before dumping 15 VIP jobs at once. The agent learns **Pre-Cooling**: sacrificing early steps to aggressively force-cool idle nodes, building a thermal buffer *before* the spike arrives.
 
 ---
 
-## 🕹️ 4. Quick Start: Front-Page Structure
+## 🏆 Hackathon Theme Alignment
 
-We have flattened the repository for maximum accessibility. All core components are now on the front page.
+### Primary: Theme 3.1 — World Modeling & Professional Tasks
+ClusterOps directly answers the call for environments requiring persistent internal states and multi-step workflows.
+*   **Predictive Physics**: The agent doesn't get a "danger" flag. It must calculate future temperatures from `current_temp + heat_rate` internally.
+*   **Causal Reasoning**: To prevent spatial bleed, the agent must model the physical layout of the nodes, not just treat them as an unordered list.
 
-### Structure
-- `server/`: FastAPI environment server.
-- `tests/`: Extensive 78-test verification suite (100% pass rate).
-- `models.py`: Typed Pydantic models for actions/observations.
-- `inference.py`: Baseline agent with Chain-of-Thought reasoning.
-- `Problem_Statement.pdf`: Official Hackathon judging criteria and themes.
+### Anti-Reward Hacking
+We use OpenEnv's **Composable Rubric** system to prevent exploitation:
+1.  **Thermal Safety (35%)**: Penalizes meltdowns.
+2.  **Throughput (30%)**: Rewards job completions.
+3.  **Efficiency (20%)**: Massive 3x penalty for "Thrashing" (allocating and immediately evicting jobs to reset timers).
+4.  **SLA Compliance (15%)**: Immediate episode termination if the queue saturates (passive stalling).
 
-### Run Local Benchmark
-```powershell
-# 1. Start Server
-python -m uvicorn server.app:app --port 8000
+---
 
-# 2. Run Groq Test (Requires GROQ_API_KEY)
-python run_groq_test.py
+## ⚙️ How It Works (Workflow)
+
+```mermaid
+graph TD
+    A[Incoming Job Queue] -->|Contains VIP, Inference, Batch| B(Agent / LLM)
+    B -->|Action: allocate, evict, cooldown, wait| C{ClusterOps Environment}
+    C -->|Physics Engine| D[Update Temperatures]
+    C -->|Scenario Engine| E[Apply Spatial Bleed, Failures, Spikes]
+    D --> F[Check Meltdowns & SLAs]
+    E --> F
+    F -->|Observation & Rubric Score| B
+    
+    style B fill:#f9f,stroke:#333,stroke-width:2px
+    style C fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
 ---
 
-## 🏆 5. Meta Hackathon Compliance
+## 💻 Technical & API Details
 
-This project strictly adheres to the **OpenEnv India 2026** requirements:
-- ✅ **Usage of OpenEnv**: Built on the latest `openenv` interfaces.
-- ✅ **Deterministic Grader**: Validated via `/grader` endpoint.
-- ✅ ** Innovation**: Novel thermal control domain.
-- ✅ **Storytelling**: Clear link between hardware physics and agent reasoning.
+### Operational Scenarios
+Pass these to the `reset` endpoint to load different physical constraints:
+| Scenario | Description | Key Agent Learning |
+| :--- | :--- | :--- |
+| `01_baseline` | Standard 10-node cluster. | Packing & Queue Management |
+| `02_spatial_bleed` | Nodes radiate heat to neighbors at 85°C. | Spatial Isolation |
+| `03_heterogeneous` | Mixed H100 (fast/hot) and T4 (slow/cool) nodes. | Semantic Hardware Matching |
+| `04_maintenance` | Nodes 0-4 scheduled to go offline mid-episode. | Deadline Evacuation |
+| `05_adversarial` | Empty queue followed by massive 15-job spike. | Proactive Pre-Cooling |
 
-**[Read the Full Problem Statement](Problem_Statement.pdf)**
+### Environment API (OpenEnv Standard)
+*   `POST /reset`: Initializes the cluster. Body: `{"scenario": "02_spatial_bleed"}`
+*   `POST /step`: Submit an action. Body: `{"action_type": "allocate", "job_id": "job_1", "node_id": 3}`
+*   `GET /grader/rubric`: Returns the dense, multi-component scoring breakdown.
 
----
-*Created for the OpenEnv Hackathon 2026.*
+### Running Locally
+```powershell
+# 1. Start the Server
+python -m uvicorn server.app:app --port 8000
+
+# 2. Run the Groq Baseline Test (Requires GROQ_API_KEY)
+python run_groq_test.py
+```

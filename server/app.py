@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 # ─── Pydantic Request/Response Models ──────────────────────────────────────────
 
 class ResetRequest(BaseModel):
-    difficulty: str = Field(default="medium", description="Difficulty: easy, medium, hard, expert")
+    scenario: str = Field(default="01_baseline", description="Operational Scenario: 01_baseline, 02_spatial_bleed, etc.")
+    difficulty: str = Field(default=None, description="Legacy field, use scenario instead")
 
 class StepRequest(BaseModel):
     action_type: str = Field(..., description="allocate, evict, cooldown, or wait")
@@ -201,9 +202,10 @@ async def reset(
     x_session_id: Optional[str] = Header(default=None),
 ):
     sid = x_session_id or _DEFAULT_SESSION
-    logger.info(f"Resetting environment (difficulty={request.difficulty}, session={sid})")
+    target_scenario = request.scenario or request.difficulty or "01_baseline"
+    logger.info(f"Resetting environment (scenario={target_scenario}, session={sid})")
     env = _get_env(sid)
-    obs = env.reset(difficulty=request.difficulty)
+    obs = env.reset(scenario=target_scenario)
     return StepResponse(
         observation=ObservationResponse(
             gpu_nodes=obs.gpu_nodes,

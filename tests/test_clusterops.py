@@ -14,7 +14,7 @@ import random
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "server")))
 
-from server.clusterops_environment import ClusteropsEnvironment, JOB_TYPES, DIFFICULTY_CONFIG
+from server.clusterops_environment import ClusteropsEnvironment, JOB_TYPES, SCENARIOS
 from models import ClusteropsAction
 
 
