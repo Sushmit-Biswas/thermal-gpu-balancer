@@ -1,29 +1,5 @@
-# Virtual Environments
 venv/
-.venv/
-env/
-ENV/
-
-# Python Cache
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-
-# Metadata/Parsed files (Specific to this project)
-parsed_*.txt
-
-# IDEs
-.vscode/
-.idea/
-
-# Environment
 .env
-
-# Large binaries from first commit cleanup if needed
-*.png
-*.ipynb
-!clusterops/reward_curve.png
-!clusterops/loss_curve.png
-!clusterops/rubric_scores.png
-!clusterops/ClusterOps_GRPO_Training.ipynb
+.DS_Store
