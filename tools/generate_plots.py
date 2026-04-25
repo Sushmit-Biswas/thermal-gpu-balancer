@@ -11,6 +11,13 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import os
+
+# ─── Path Setup ───────────────────────────────────────────────────────────────
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ASSETS_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "assets")
+os.makedirs(ASSETS_DIR, exist_ok=True)
+
 
 # ─── Aesthetic Config ─────────────────────────────────────────────────────────
 plt.style.use("dark_background")
@@ -95,9 +102,11 @@ def generate_reward_curve():
               frameon=True, facecolor="#1E1E1E", edgecolor=COLORS["grid"])
 
     fig.tight_layout()
-    fig.savefig("reward_curve.png", dpi=150, facecolor=COLORS["bg"])
+    path = os.path.join(ASSETS_DIR, "reward_curve.png")
+    fig.savefig(path, dpi=150, facecolor=COLORS["bg"])
     plt.close(fig)
-    print("  [OK] Saved: reward_curve.png")
+    print(f"  [OK] Saved: {path}")
+
 
 
 def generate_rubric_chart():
@@ -150,9 +159,11 @@ def generate_rubric_chart():
     ax.legend(fontsize=11, frameon=True, facecolor="#1E1E1E", edgecolor=COLORS["grid"])
 
     fig.tight_layout()
-    fig.savefig("rubric_scores.png", dpi=150, facecolor=COLORS["bg"])
+    path = os.path.join(ASSETS_DIR, "rubric_scores.png")
+    fig.savefig(path, dpi=150, facecolor=COLORS["bg"])
     plt.close(fig)
-    print("  [OK] Saved: rubric_scores.png")
+    print(f"  [OK] Saved: {path}")
+
 
 
 if __name__ == "__main__":

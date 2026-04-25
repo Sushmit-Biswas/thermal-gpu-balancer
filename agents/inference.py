@@ -268,7 +268,8 @@ def main():
 
     if args.episodes > 1:
         print(f"\n{'='*65}")
-        print(f"SUMMARY over {args.episodes} episodes | difficulty={args.difficulty}")
+        print(f"SUMMARY over {args.episodes} episodes | scenario={args.scenario}")
+
         print(f"  Avg Reward:  {sum(all_rewards)/len(all_rewards):.1f}")
         print(f"  Best Reward: {max(all_rewards):.1f}")
         print(f"  Avg Grade:   {sum(all_grades)/len(all_grades):.4f}")
