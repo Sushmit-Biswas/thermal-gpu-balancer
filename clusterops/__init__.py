@@ -1,4 +1,9 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 
-"""Clusterops Environment."""
+"""ClusterOps: Thermal GPU Balancer - OpenEnv Environment."""
+
+try:
+    from .models import ClusteropsAction, ClusteropsObservation
+except ImportError:
+    from clusterops.models import ClusteropsAction, ClusteropsObservation

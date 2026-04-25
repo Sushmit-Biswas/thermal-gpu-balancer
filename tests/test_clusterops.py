@@ -3,7 +3,7 @@ Comprehensive pytest test suite for ClusterOps.
 Tests the physics engine directly (no server required).
 
 Run with:
-    cd clusterops
+    cd thermal-gpu-balancer
     pytest tests/ -v
 """
 import sys
@@ -12,7 +12,8 @@ import pytest
 import random
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from clusterops.environment import ClusteropsEnvironment, JOB_TYPES, SCENARIOS, DIFFICULTY_CONFIG
+
+from clusterops.environment import ClusteropsEnvironment, JOB_TYPES, DIFFICULTY_CONFIG
 from clusterops.models import ClusteropsAction
 
 
@@ -44,16 +45,16 @@ def make_action(**kwargs):
 
 class TestInit:
     def test_easy_node_count(self, easy_env):
-        assert len(easy_env.gpu_nodes) == 6
+        assert len(easy_env.gpu_nodes) == DIFFICULTY_CONFIG["easy"]["num_nodes"]
 
     def test_medium_node_count(self, medium_env):
-        assert len(medium_env.gpu_nodes) == 10
+        assert len(medium_env.gpu_nodes) == DIFFICULTY_CONFIG["medium"]["num_nodes"]
 
     def test_hard_node_count(self, hard_env):
-        assert len(hard_env.gpu_nodes) == 16
+        assert len(hard_env.gpu_nodes) == DIFFICULTY_CONFIG["hard"]["num_nodes"]
 
     def test_expert_node_count(self, expert_env):
-        assert len(expert_env.gpu_nodes) == 20
+        assert len(expert_env.gpu_nodes) == DIFFICULTY_CONFIG["expert"]["num_nodes"]
 
     def test_all_nodes_idle_at_start(self, easy_env):
         assert all(n["status"] == "idle" for n in easy_env.gpu_nodes)
@@ -76,11 +77,17 @@ class TestInit:
     def test_reset_changes_difficulty(self, easy_env):
         easy_env.reset(difficulty="hard")
         assert easy_env.difficulty == "hard"
-        assert len(easy_env.gpu_nodes) == 16
+        assert len(easy_env.gpu_nodes) == DIFFICULTY_CONFIG["hard"]["num_nodes"]
 
     def test_invalid_difficulty_falls_back_to_medium(self):
         env = ClusteropsEnvironment(difficulty="INVALID")
         assert len(env.gpu_nodes) == DIFFICULTY_CONFIG["medium"]["num_nodes"]
+
+    def test_difficulty_property(self, easy_env):
+        assert easy_env.difficulty == "easy"
+
+    def test_scenario_property(self, easy_env):
+        assert easy_env.scenario == "01_baseline"
 
 
 # ─── 2. Allocate Action Tests ─────────────────────────────────────────────────
@@ -112,7 +119,7 @@ class TestAllocate:
 
     def test_allocate_to_busy_node_penalises(self, easy_env):
         # Use duration>1 so job is still running when we check
-        easy_env.job_queue = [{"id": "job_long", "type": "batch", "duration": 5, "wait_time": 0}]
+        easy_env.job_queue = [{"id": "job_long", "type": "batch", "duration": 5, "wait_time": 0, "deadline": 99}]
         easy_env.step(make_action(action_type="allocate", job_id="job_long", node_id=0))
         assert easy_env.gpu_nodes[0]["status"] == "busy"
         # Now spawn another job and try to allocate to the same busy node
@@ -147,7 +154,7 @@ class TestAllocate:
 class TestEvict:
     def _load_node(self, env, node_id=0):
         """Load node_id with a long-running job so it stays busy."""
-        env.job_queue = [{"id": "job_long", "type": "batch", "duration": 5, "wait_time": 0}]
+        env.job_queue = [{"id": "job_long", "type": "batch", "duration": 5, "wait_time": 0, "deadline": 99}]
         env.step(make_action(action_type="allocate", job_id="job_long", node_id=node_id))
         assert env.gpu_nodes[node_id]["status"] == "busy"
 
@@ -199,7 +206,7 @@ class TestCooldown:
         assert easy_env.gpu_nodes[0]["temperature"] < 80.0
 
     def test_cooldown_busy_node_penalises(self, easy_env):
-        easy_env.job_queue = [{"id": "job_long", "type": "batch", "duration": 5, "wait_time": 0}]
+        easy_env.job_queue = [{"id": "job_long", "type": "batch", "duration": 5, "wait_time": 0, "deadline": 99}]
         easy_env.step(make_action(action_type="allocate", job_id="job_long", node_id=0))
         assert easy_env.gpu_nodes[0]["status"] == "busy"
         penalty, feedback = easy_env._handle_cooldown(
@@ -282,7 +289,7 @@ class TestThermalPhysics:
 
     def test_failed_node_recovers_when_cool(self, easy_env):
         easy_env.gpu_nodes[0]["status"] = "failed"
-        easy_env.gpu_nodes[0]["temperature"] = 48.0  # Just above 50°C, will cool
+        easy_env.gpu_nodes[0]["temperature"] = 48.0  # Just below 50°C
         # Step enough times for it to drop below 50
         for _ in range(5):
             easy_env.step(make_action(action_type="wait"))
@@ -290,17 +297,17 @@ class TestThermalPhysics:
 
     def test_job_completes_after_duration(self, easy_env):
         # Use a deterministic job with duration=1 to guarantee completion
-        easy_env.job_queue = [{"id": "job_x", "type": "batch", "duration": 1, "wait_time": 0}]
+        easy_env.job_queue = [{"id": "job_x", "type": "batch", "duration": 1, "wait_time": 0, "deadline": 99}]
         easy_env.step(make_action(action_type="allocate", job_id="job_x", node_id=0))
         # Physics runs during allocate step (duration decrements to 0 → completes)
         assert easy_env.completed_jobs >= 1
 
     def test_thermal_warning_count(self, easy_env):
-        # 85% of 100°C limit = 85°C threshold.
-        # Idle nodes cool by cool_rate (10°C) per step, so set temp above 85+10=95°C
-        # so that even after cooling in the step they remain above 85°C.
-        easy_env.gpu_nodes[0]["temperature"] = 96.0
-        easy_env.gpu_nodes[1]["temperature"] = 97.0
+        # 85% of thermal_limit threshold.
+        # Set temp well above threshold + cooling so it stays above after the step
+        threshold = easy_env.thermal_limit * 0.85
+        easy_env.gpu_nodes[0]["temperature"] = threshold + easy_env.cool_rate + 1.0
+        easy_env.gpu_nodes[1]["temperature"] = threshold + easy_env.cool_rate + 1.0
         obs = easy_env.step(make_action(action_type="wait"))
         assert obs.thermal_warnings >= 2
 
@@ -312,7 +319,7 @@ class TestQueueAging:
         # Clear queue and add one known job
         easy_env.job_queue = [{
             "id": "job_test", "type": "vip_training",
-            "duration": 5, "wait_time": 0
+            "duration": 5, "wait_time": 0, "deadline": 99,
         }]
         obs = easy_env.step(make_action(action_type="wait"))
         # vip_training queue penalty = -2.0 per step
@@ -321,7 +328,7 @@ class TestQueueAging:
     def test_wait_time_increments(self, easy_env):
         easy_env.job_queue = [{
             "id": "job_test", "type": "batch",
-            "duration": 5, "wait_time": 0
+            "duration": 5, "wait_time": 0, "deadline": 99,
         }]
         easy_env.step(make_action(action_type="wait"))
         assert easy_env.job_queue[0]["wait_time"] == 1
@@ -340,11 +347,11 @@ class TestQueueAging:
             "id": "job_expiring", "type": "batch",
             "duration": 5, "wait_time": 0, "deadline": 2
         }]
-        easy_env.step(make_action(action_type="wait")) # wait_time -> 1
-        easy_env.step(make_action(action_type="wait")) # wait_time -> 2
+        easy_env.step(make_action(action_type="wait"))  # wait_time -> 1
+        easy_env.step(make_action(action_type="wait"))  # wait_time -> 2
         assert len(easy_env.job_queue) == 1
-        
-        easy_env.step(make_action(action_type="wait")) # wait_time -> 3 > deadline
+
+        easy_env.step(make_action(action_type="wait"))  # wait_time -> 3 > deadline
         assert len(easy_env.job_queue) == 0
         assert easy_env.failed_jobs == 1
 
@@ -413,7 +420,7 @@ class TestObservation:
 
     def test_observation_gpu_nodes_count_matches_config(self, easy_env):
         obs = easy_env.reset()
-        assert len(obs.gpu_nodes) == 6
+        assert len(obs.gpu_nodes) == DIFFICULTY_CONFIG["easy"]["num_nodes"]
 
     def test_observation_deep_copy(self, easy_env):
         obs = easy_env.reset()
@@ -424,6 +431,16 @@ class TestObservation:
         obs = easy_env.step(make_action(action_type="wait"))
         assert "step" in obs.metadata
         assert obs.metadata["step"] == 1
+
+    def test_metadata_has_difficulty(self, easy_env):
+        obs = easy_env.step(make_action(action_type="wait"))
+        assert "difficulty" in obs.metadata
+        assert obs.metadata["difficulty"] == "easy"
+
+    def test_metadata_has_scenario(self, easy_env):
+        obs = easy_env.step(make_action(action_type="wait"))
+        assert "scenario" in obs.metadata
+        assert obs.metadata["scenario"] == "01_baseline"
 
     def test_done_false_mid_episode(self, easy_env):
         obs = easy_env.step(make_action(action_type="wait"))
@@ -487,3 +504,31 @@ class TestFullEpisode:
         for i in range(1, 6):
             easy_env.step(make_action(action_type="wait"))
             assert easy_env._state.step_count == i
+
+
+# ─── 11. Scenario Tests ──────────────────────────────────────────────────────
+
+class TestScenarios:
+    def test_reset_with_scenario(self):
+        env = ClusteropsEnvironment(difficulty="medium", scenario="02_spatial_bleed")
+        assert env.scenario == "02_spatial_bleed"
+        assert env.difficulty == "medium"
+
+    def test_scenario_change_on_reset(self):
+        env = ClusteropsEnvironment(difficulty="easy")
+        env.reset(scenario="03_heterogeneous")
+        assert env.scenario == "03_heterogeneous"
+        assert env.difficulty == "easy"
+
+    def test_difficulty_and_scenario_independent(self):
+        env = ClusteropsEnvironment(difficulty="hard", scenario="05_adversarial")
+        assert len(env.gpu_nodes) == DIFFICULTY_CONFIG["hard"]["num_nodes"]
+        assert env.scenario == "05_adversarial"
+
+    def test_adversarial_scenario_starts_with_empty_queue(self):
+        env = ClusteropsEnvironment(difficulty="medium", scenario="05_adversarial")
+        assert len(env.job_queue) == 0
+
+    def test_invalid_scenario_falls_back(self):
+        env = ClusteropsEnvironment(difficulty="easy", scenario="INVALID")
+        assert env.scenario == "01_baseline"

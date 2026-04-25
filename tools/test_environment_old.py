@@ -1,7 +1,19 @@
-import requests
-import json
+"""
+Interactive test harness for the ClusterOps environment server.
 
-BASE_URL = "http://127.0.0.1:8000"
+Verifies reset, step, allocate, evict, and grading through the HTTP API.
+
+Usage:
+    1. Start the server: uvicorn server.app:app --port 8000
+    2. Run: python test_environment.py
+"""
+
+import os
+import json
+import requests
+
+ENV_URL = os.getenv("ENVIRONMENT_BASE_URL", "http://localhost:8000")
+
 
 def print_state(response, action_taken=""):
     if not response.ok:
@@ -10,14 +22,15 @@ def print_state(response, action_taken=""):
 
     data = response.json()
     obs = data.get("observation", {})
-    
+
     if action_taken:
         print(f"Action Taken: {action_taken}")
 
-    print("\n" + "="*50)
-    print(f"Step: {obs.get('metadata', {}).get('step', 'N/A')}, Reward: {data.get('reward', 'N/A')}, Done: {data.get('done', 'N/A')}")
+    print("\n" + "=" * 50)
+    metadata = data.get("metadata", {})
+    print(f"Step: {metadata.get('step', 'N/A')}, Reward: {data.get('reward', 'N/A')}, Done: {data.get('done', 'N/A')}")
     print(f"Feedback: {obs.get('feedback', 'N/A')}")
-    print("-"*50)
+    print("-" * 50)
 
     print("GPU Nodes:")
     for node in obs.get("gpu_nodes", []):
@@ -26,14 +39,14 @@ def print_state(response, action_taken=""):
     print("\nJob Queue:")
     for job in obs.get("job_queue", []):
         print(f"  Job {job['id']}: {job['type']:<15} | Duration: {job['duration']} | Wait Time: {job['wait_time']}")
-    
-    print("\n" + "="*50 + "\n")
+
+    print("\n" + "=" * 50 + "\n")
 
 
 def run_test_scenario():
     # Reset environment to easy
-    print("Resetting environment to easy mode...")
-    resp = requests.post(f"{BASE_URL}/reset", json={"difficulty": "easy"})
+    print("Resetting environment to easy difficulty...")
+    resp = requests.post(f"{ENV_URL}/reset", json={"difficulty": "easy"})
     print_state(resp, "RESET")
 
     # Let's try to allocate the first job in the queue to the first node
@@ -41,19 +54,19 @@ def run_test_scenario():
         job_id = resp.json()["observation"]["job_queue"][0]["id"]
         action = {"action_type": "allocate", "job_id": job_id, "node_id": 0}
         print(f"Attempting to allocate {job_id} to node 0...")
-        resp = requests.post(f"{BASE_URL}/step", json=action)
+        resp = requests.post(f"{ENV_URL}/step", json=action)
         print_state(resp, f"ALLOCATE {job_id} to Node 0")
 
     # Wait for a few steps to see temperature changes
     for i in range(3):
         print(f"Waiting... (Step {i+1}/3)")
-        resp = requests.post(f"{BASE_URL}/step", json={"action_type": "wait"})
+        resp = requests.post(f"{ENV_URL}/step", json={"action_type": "wait"})
         print_state(resp, "WAIT")
 
     # Try an invalid action
     print("Attempting an invalid action (allocating a non-existent job)...")
     action = {"action_type": "allocate", "job_id": "job_999", "node_id": 1}
-    resp = requests.post(f"{BASE_URL}/step", json=action)
+    resp = requests.post(f"{ENV_URL}/step", json=action)
     print_state(resp, "ALLOCATE job_999 to Node 1")
 
     # Run until the episode is done
@@ -64,17 +77,17 @@ def run_test_scenario():
             job_to_allocate = obs["job_queue"][0]
             idle_node = next(n for n in obs["gpu_nodes"] if n["status"] == "idle")
             action = {"action_type": "allocate", "job_id": job_to_allocate["id"], "node_id": idle_node["id"]}
-            resp = requests.post(f"{BASE_URL}/step", json=action)
+            resp = requests.post(f"{ENV_URL}/step", json=action)
             print_state(resp, f"ALLOCATE {action['job_id']} to Node {action['node_id']}")
         else:
-            resp = requests.post(f"{BASE_URL}/step", json={"action_type": "wait"})
+            resp = requests.post(f"{ENV_URL}/step", json={"action_type": "wait"})
             print_state(resp, "WAIT")
 
     print("Episode finished.")
-    
+
     # Get final score
     print("Getting final score...")
-    grader_resp = requests.post(f"{BASE_URL}/grader")
+    grader_resp = requests.post(f"{ENV_URL}/grader")
     if grader_resp.ok:
         print("Grader Response:")
         print(json.dumps(grader_resp.json(), indent=2))
@@ -85,13 +98,12 @@ def run_test_scenario():
 if __name__ == "__main__":
     try:
         # Health check
-        health = requests.get(f"{BASE_URL}/health")
+        health = requests.get(f"{ENV_URL}/health")
         if health.ok:
             print("Server is healthy!")
             run_test_scenario()
         else:
             print(f"Server health check failed: {health.status_code}")
-    except requests.exceptions.ConnectionError as e:
-        print(f"Connection to the server failed. Is the server running on {BASE_URL}?")
-        print("Please run 'python thermal-gpu-balancer/clusterops/server/app.py' in a separate terminal.")
-
+    except requests.exceptions.ConnectionError:
+        print(f"Connection to the server failed. Is the server running on {ENV_URL}?")
+        print("Please run 'uvicorn server.app:app --port 8000' in a separate terminal.")

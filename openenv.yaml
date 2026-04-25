@@ -17,6 +17,12 @@ environment:
     - medium
     - hard
     - expert
+  scenarios:
+    - 01_baseline
+    - 02_spatial_bleed
+    - 03_heterogeneous
+    - 04_maintenance
+    - 05_adversarial
   concurrent_sessions: true
 
 metadata:

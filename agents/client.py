@@ -12,7 +12,7 @@ from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import ClusteropsAction, ClusteropsObservation
+from clusterops.models import ClusteropsAction, ClusteropsObservation
 
 
 class ClusteropsEnv(
@@ -25,7 +25,7 @@ class ClusteropsEnv(
     server, enabling efficient multi-step interactions with lower latency.
 
     Example:
-        >>> with ClusteropsEnv(base_url="http://localhost:8000") as client:
+        >>> with ClusteropsEnv(base_url="http://localhost:8000").sync() as client:
         ...     result = client.reset()
         ...     print(result.observation.feedback)
         ...
