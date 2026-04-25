@@ -80,14 +80,16 @@ class TestEdgeCases:
         assert env.gpu_nodes[0]["status"] == "idle"
 
     def test_rapid_eviction(self, env):
-        """Allocate then immediately evict."""
-        job_id = env.job_queue[0]["id"]
-        env.step(make_action(action_type="allocate", job_id=job_id, node_id=0))
+        """Allocate then immediately evict — should trigger thrashing penalty."""
+        env.job_queue = [{"id": "j_thrash", "type": "batch", "duration": 10, "wait_time": 0, "deadline": 99}]
+        env.step(make_action(action_type="allocate", job_id="j_thrash", node_id=0))
         assert env.gpu_nodes[0]["status"] == "busy"
-        
+
         obs = env.step(make_action(action_type="evict", node_id=0))
         assert env.gpu_nodes[0]["status"] == "idle"
         assert env.evictions == 1
+        assert env.thrashing_events == 1
+        assert "THRASHING" in obs.feedback
 
     def test_numerical_stability_long_run(self, env):
         """Run for many steps to ensure no NaN or infinite values."""
@@ -102,12 +104,15 @@ class TestEdgeCases:
                 assert 35.0 <= n["temperature"] <= env.thermal_limit + 50.0
 
     def test_queue_overflow_behavior(self, env):
-        """Environment should handle 100+ jobs in queue gracefully."""
-        env._spawn_jobs(100)
-        assert len(env.job_queue) >= 100
-        # Step should still be fast
+        """Queue saturation should terminate the episode early."""
+        # Easy has 6 nodes, saturation limit = 12
+        env.config["spawn_rate"] = 0.0  # prevent random spawning
+        env.job_queue = []  # clear initial jobs
+        env._spawn_jobs(env._queue_saturation_limit)  # exactly at limit
         obs = env.step(make_action(action_type="wait"))
-        assert len(obs.job_queue) >= 100
+        # Should terminate due to queue saturation
+        assert obs.done is True
+        assert "Queue saturation" in obs.feedback
 
     def test_invalid_node_id_extreme(self, env):
         """Check very large and very small node IDs."""
@@ -135,3 +140,65 @@ class TestEdgeCases:
         rubric = env.grade_rubric()
         assert "total" in rubric
         assert 0.0 <= rubric["total"] <= 1.0
+
+
+class TestAntiExploit:
+    """Tests for the anti-reward-hacking mechanisms."""
+
+    def test_queue_saturation_terminates_episode(self, env):
+        """If queue exceeds 2x nodes, episode ends immediately with -100."""
+        env.config["spawn_rate"] = 0.0
+        env.job_queue = []
+        env._spawn_jobs(env._queue_saturation_limit)
+        obs = env.step(make_action(action_type="wait"))
+        assert obs.done is True
+        assert "Queue saturation" in obs.feedback
+        assert obs.reward <= -100.0
+
+    def test_thrashing_penalty_3x(self, env):
+        """Allocate then evict within 2 steps should cost -30 instead of -10."""
+        env.config["spawn_rate"] = 0.0
+        env.job_queue = [{"id": "j1", "type": "batch", "duration": 10, "wait_time": 0, "deadline": 99}]
+        env.step(make_action(action_type="allocate", job_id="j1", node_id=0))
+        # Evict on the very next step
+        penalty, feedback = env._handle_evict(make_action(action_type="evict", node_id=0))
+        assert penalty == -30.0
+        assert "THRASHING" in feedback
+        assert env.thrashing_events == 1
+
+    def test_normal_eviction_no_thrashing(self, env):
+        """Eviction after 3+ steps should NOT trigger thrashing."""
+        env.config["spawn_rate"] = 0.0
+        env.job_queue = [{"id": "j1", "type": "batch", "duration": 10, "wait_time": 0, "deadline": 99}]
+        env.step(make_action(action_type="allocate", job_id="j1", node_id=0))  # step 1
+        env.step(make_action(action_type="wait"))  # step 2
+        env.step(make_action(action_type="wait"))  # step 3
+        # Now evict at step 4 — delta becomes 3
+        obs = env.step(make_action(action_type="evict", node_id=0))
+        assert obs.reward <= -10.0
+        assert "THRASHING" not in obs.feedback
+        assert env.thrashing_events == 0
+
+    def test_sla_deadline_expiry(self, env):
+        """Jobs should expire at deadline, penalizing -20 each."""
+        env.config["spawn_rate"] = 0.0
+        env.job_queue = [{"id": "j_exp", "type": "batch", "duration": 5, "wait_time": 0, "deadline": 1}]
+        env.step(make_action(action_type="wait"))  # wait_time -> 1, not yet expired
+        assert len(env.job_queue) == 1
+        env.step(make_action(action_type="wait"))  # wait_time -> 2 > deadline 1
+        assert len(env.job_queue) == 0
+        assert env.failed_jobs == 1
+
+    def test_passive_wait_accumulates_penalties(self, env):
+        """Spamming wait should accumulate escalating queue penalties."""
+        env.config["spawn_rate"] = 0.0
+        env.job_queue = [
+            {"id": "j1", "type": "vip_training", "duration": 5, "wait_time": 0, "deadline": 99},
+            {"id": "j2", "type": "vip_training", "duration": 5, "wait_time": 0, "deadline": 99},
+        ]
+        total_penalty = 0.0
+        for _ in range(5):
+            obs = env.step(make_action(action_type="wait"))
+            total_penalty += obs.reward
+        # 2 VIP jobs x -2.0/step x 5 steps = -20 minimum queue penalty
+        assert total_penalty <= -20.0

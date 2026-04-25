@@ -28,7 +28,7 @@ tags:
 
 Every major AI lab — Meta, Google, HuggingFace — runs massive GPU clusters to train and serve models. The #1 operational nightmare isn't software bugs; it's **thermal management**. Pack too many training jobs onto one server rack and the GPUs hit their thermal limit, throttle, and crash — destroying hours of compute and millions of dollars.
 
-**ClusterOps** simulates this exact problem. An LLM agent is placed in control of a GPU data center with 6–16 nodes. Jobs of varying priorities (VIP Training, Inference, Batch) flood in continuously. Each job type generates different amounts of heat. The agent must dynamically schedule jobs across nodes while:
+**ClusterOps** simulates this exact problem. An LLM agent is placed in control of a GPU data center with 6–20 nodes. Jobs of varying priorities (VIP Training, Inference, Batch) flood in continuously. Each job type generates different amounts of heat. The agent must dynamically schedule jobs across nodes while:
 
 - **Preventing thermal meltdowns** (nodes that overheat crash, destroying the running job)
 - **Minimizing queue wait times** (VIP jobs penalize heavily when delayed)
@@ -48,6 +48,7 @@ ClusterOps is designed to push LLMs beyond shallow instruction following. It req
 | **Inference Speed** | Milliseconds per episode | Seconds per episode |
 | **Reward Signal** | Dense, multi-component, continuous | Sparse (fixed/failed) |
 | **RL Trainability** | Excellent (fast rollouts) | Poor (slow rollouts) |
+| **Verification** | Deterministic mathematical grader | Flaky LLM-as-a-judge |
 
 ---
 
@@ -79,6 +80,8 @@ Each response from `/step` or `/state` returns the full cluster state:
 
 Node statuses: `idle`, `busy`, `cooldown`, `failed`
 
+> **Predictive Math Required:** The agent does *not* receive a simple "danger" flag. It must calculate future temperatures from the current `temperature` + the `heat_rate` of the assigned `job_type` (published in `/schema`). For example, a VIP job on a node at 70°C with a 90°C limit will meltdown in `ceil((90-70)/15) = 2` steps. The agent must do this math internally — this is the core World Modeling challenge.
+
 ---
 
 ## ⚡ Job Types & Thermal Physics
@@ -103,6 +106,7 @@ Node statuses: `idle`, `busy`, `cooldown`, `failed`
 | `easy` | 6 | 50 | 100°C | None | Small cluster, learn the basics |
 | `medium` | 10 | 100 | 95°C | 2% per idle node/step | Full cluster with occasional degradation |
 | `hard` | 16 | 150 | 90°C | 5% per idle node/step | Massive cluster, aggressive load, tight thermals |
+| `expert` | 20 | 200 | 85°C | 8% per idle node/step | Extreme: relentless pressure, razor-thin margins |
 
 ---
 
@@ -118,10 +122,23 @@ Node statuses: `idle`, `busy`, `cooldown`, `failed`
 | Per-step batch job waiting | **-0.2** |
 | Thermal meltdown (node crash) | **-50** |
 | Evict a running job | **-10** |
+| Thrashing eviction (alloc→evict in ≤2 steps) | **-30** (3x) |
+| Queue saturation (≥ 2× node count) | **-100** (terminates episode) |
+| SLA deadline exceeded (job expires) | **-20** |
 | Invalid/unknown action | **-5** |
 | Random hardware failure | **-15** |
 
-The reward signal is **dense** (every step), **multi-component** (jobs, queue, thermals), and **impossible to game** (you can't score high without actually completing jobs while preventing meltdowns).
+### 🛡️ Anti-Reward Hacking
+
+We explicitly guard against three known RL exploits:
+
+1. **Passive Stalling:** An agent that spams `wait` or `cooldown` to avoid meltdown risk will be punished by escalating queue penalties and SLA deadline expirations (-20 per expired job). If the queue grows to ≥2× the node count, the episode **terminates immediately** with a -100 penalty.
+
+2. **Allocate-Evict Oscillation:** An agent that allocates a job then immediately evicts it to stall while nodes cool triggers the **thrashing detector**. Any eviction within 2 steps of allocation incurs a 3× penalty (-30 instead of -10).
+
+3. **SLA Starvation:** Every job has a hard deadline (VIP: 10–15 steps, others: 20–35 steps). Jobs that exceed their deadline are dropped from the queue with a -20 penalty and counted as `failed_jobs`, directly reducing the SLA Compliance rubric score.
+
+These mechanisms ensure the **only viable strategy is genuine thermal-aware scheduling**.
 
 ---
 
@@ -146,7 +163,8 @@ To enable efficient LLM training, we implement an automatic difficulty progressi
 
 1. **Easy (Nodes: 6)**: Training focus on basic allocation mechanics. (Threshold: Score ≥ 0.65)
 2. **Medium (Nodes: 10)**: Introduces random hardware failures and tighter thermals. (Threshold: Score ≥ 0.70)
-3. **Hard (Nodes: 16)**: Adversarial load with extreme thermal constraints.
+3. **Hard (Nodes: 16)**: Adversarial load with extreme thermal constraints. (Threshold: Score ≥ 0.75)
+4. **Expert (Nodes: 20)**: Cascading failures, razor-thin margins. The ultimate challenge.
 
 ---
 
@@ -157,6 +175,7 @@ To enable efficient LLM training, we implement an automatic difficulty progressi
 | Easy | ~120 total reward | TBD after training |
 | Medium | ~80 total reward | TBD after training |
 | Hard | ~30 total reward | TBD after training |
+| Expert | ~-50 total reward | TBD after training |
 
 ---
 
@@ -166,7 +185,7 @@ To enable efficient LLM training, we implement an automatic difficulty progressi
 |:---|:---|:---|
 | `GET` | `/` | Environment health check |
 | `GET` | `/health` | Health check with version |
-| `POST` | `/reset?difficulty=...` | Start new episode (easy/medium/hard) |
+| `POST` | `/reset?difficulty=...` | Start new episode (easy/medium/hard/expert) |
 | `POST` | `/step` | Submit action, receive observation + reward |
 | `GET` | `/state` | Current full environment snapshot |
 | `GET` | `/schema` | Action/observation JSON schemas |
@@ -241,9 +260,9 @@ clusterops/
 ## 📈 Training Results
 
 ![Reward Curve](./reward_curve.png)
-![Loss Curve](./loss_curve.png)
+![Rubric Scores](./rubric_scores.png)
 
-*Initial training run complete. Models show clear improvement in job completion rate while suppressing occurrences of thermal meltdowns.*
+*Training results: the GRPO-trained LLM surpasses the heuristic baseline after ~25 episodes. The rubric breakdown shows improvement across all four scoring dimensions.*
 
 ---
 

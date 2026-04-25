@@ -87,6 +87,17 @@ DIFFICULTY_CONFIG = {
         "initial_jobs": 5,
         "description": "Massive cluster with aggressive job load, tight thermals, frequent failures.",
     },
+    "expert": {
+        "num_nodes": 20,
+        "max_steps": 200,
+        "spawn_rate": 0.75,
+        "max_spawn": 4,
+        "hardware_failure_rate": 0.08,
+        "thermal_limit": 85.0,
+        "cool_rate": 5.0,
+        "initial_jobs": 8,
+        "description": "Extreme cluster: relentless job pressure, razor-thin thermal margins, cascading failures.",
+    },
 }
 
 
@@ -109,8 +120,14 @@ class ClusteropsEnvironment(Environment):
         - +8 to +40 for completing a job (depends on job type).
         - -0.2 to -2.0 per step per queued job (depends on priority).
         - -50 for a thermal meltdown.
-        - -10 for evicting a running job (wasted compute).
+        - -10 for evicting a running job (wasted compute, 3x if thrashing).
+        - -100 for queue saturation (episode terminates early).
         - -5 for invalid actions.
+
+    Anti-Reward-Hacking:
+        - Queue saturation: episode ends if queue exceeds 2x node count.
+        - Thrashing penalty: allocate→evict within 2 steps = 3x eviction cost.
+        - SLA deadlines: jobs expire after a deadline, incurring a -20 penalty.
     """
 
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
@@ -145,8 +162,14 @@ class ClusteropsEnvironment(Environment):
         self.failed_jobs = 0
         self.meltdowns = 0
         self.evictions = 0
+        self.thrashing_events = 0
         self.total_reward = 0.0
         self.next_job_id = 1
+
+        # Anti-exploit: track when each node was last allocated (step number)
+        self._node_alloc_step = [0] * self.num_nodes
+        # Queue saturation threshold: 2x node count
+        self._queue_saturation_limit = self.num_nodes * 2
 
         # Spawn initial jobs
         self._spawn_jobs(config["initial_jobs"])
@@ -220,8 +243,14 @@ class ClusteropsEnvironment(Environment):
             num = random.randint(1, self.config["max_spawn"])
             self._spawn_jobs(num)
 
-        # ────── 6. Termination ──────
-        done = self._state.step_count >= self.max_steps
+        # ────── 6. Queue Saturation Check (Anti-Gaming) ──────
+        queue_overflow = len(self.job_queue) >= self._queue_saturation_limit
+        if queue_overflow:
+            reward -= 100.0
+            feedback += " CRITICAL: Queue saturation! Episode terminated."
+
+        # ────── 7. Termination ──────
+        done = self._state.step_count >= self.max_steps or queue_overflow
         self.total_reward += reward
 
         return self._build_observation(feedback, reward, done)
@@ -247,6 +276,8 @@ class ClusteropsEnvironment(Environment):
         node["job_id"] = job["id"]
         node["job_type"] = job["type"]
         node["job_duration_remaining"] = job["duration"]
+        # Track allocation step for thrashing detection
+        self._node_alloc_step[action.node_id] = self._state.step_count
         return 0.0, f"Allocated {job['id']} ({job['type']}) to Node {action.node_id}."
 
     def _handle_evict(self, action):
@@ -265,6 +296,13 @@ class ClusteropsEnvironment(Environment):
         node["job_id"] = None
         node["job_type"] = None
         node["job_duration_remaining"] = 0
+
+        # Thrashing detection: allocate→evict within 2 steps = 3x penalty
+        steps_since_alloc = self._state.step_count - self._node_alloc_step[action.node_id]
+        if steps_since_alloc <= 2:
+            self.thrashing_events += 1
+            return -30.0, f"THRASHING: Evicted {evicted_job} from Node {action.node_id} only {steps_since_alloc} step(s) after allocation. 3x penalty applied."
+
         return -10.0, f"Evicted {evicted_job} from Node {action.node_id}. Compute wasted."
 
     def _handle_cooldown(self, action):
@@ -442,6 +480,7 @@ class ClusteropsEnvironment(Environment):
 
         return {
             "total": total,
+            "score": total,  # alias for GraderResponse compatibility
             "thermal_safety": round(thermal_safety, 4),
             "throughput": round(throughput, 4),
             "efficiency": round(efficiency, 4),
@@ -450,6 +489,7 @@ class ClusteropsEnvironment(Environment):
             "completed_jobs": self.completed_jobs,
             "meltdowns": self.meltdowns,
             "evictions": self.evictions,
+            "thrashing_events": self.thrashing_events,
             "failed_jobs": self.failed_jobs,
             "total_reward": round(self.total_reward, 2),
         }
@@ -457,15 +497,17 @@ class ClusteropsEnvironment(Environment):
     def curriculum_difficulty(self) -> str:
         """
         Adaptive curriculum: suggests the next difficulty based on rubric score.
-        Enables automatic easy → medium → hard progression.
+        Enables automatic easy → medium → hard → expert progression.
         """
         score = self.grade()
         if self.difficulty == "easy":
             return "medium" if score >= 0.65 else "easy"
         elif self.difficulty == "medium":
             return "hard" if score >= 0.70 else "medium"
+        elif self.difficulty == "hard":
+            return "expert" if score >= 0.75 else "hard"
         else:
-            return "hard"  # Already at max
+            return "expert"  # Already at max
 
     @property
     def state(self) -> State:

@@ -52,11 +52,6 @@ Example:
   "action": {"action_type": "evict", "node_id": 0}
 }
 """
-  {"action_type": "allocate", "job_id": "job_3", "node_id": 2}
-  {"action_type": "evict", "node_id": 5}
-  {"action_type": "cooldown", "node_id": 1}
-  {"action_type": "wait"}
-"""
 
 
 # ─── Environment Helpers ──────────────────────────────────────────────────────
@@ -245,7 +240,7 @@ def run_episode(difficulty: str = "medium", verbose: bool = True) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="ClusterOps LLM Inference Agent")
-    parser.add_argument("--difficulty", choices=["easy", "medium", "hard"], default="medium")
+    parser.add_argument("--difficulty", choices=["easy", "medium", "hard", "expert"], default="medium")
     parser.add_argument("--episodes", type=int, default=1)
     args = parser.parse_args()
 

@@ -32,6 +32,10 @@ def medium_env():
 def hard_env():
     return ClusteropsEnvironment(difficulty="hard")
 
+@pytest.fixture
+def expert_env():
+    return ClusteropsEnvironment(difficulty="expert")
+
 def make_action(**kwargs):
     defaults = {"action_type": "wait", "job_id": "", "node_id": -1}
     defaults.update(kwargs)
@@ -49,6 +53,9 @@ class TestInit:
 
     def test_hard_node_count(self, hard_env):
         assert len(hard_env.gpu_nodes) == 16
+
+    def test_expert_node_count(self, expert_env):
+        assert len(expert_env.gpu_nodes) == 20
 
     def test_all_nodes_idle_at_start(self, easy_env):
         assert all(n["status"] == "idle" for n in easy_env.gpu_nodes)
@@ -248,8 +255,10 @@ class TestThermalPhysics:
 
     def test_meltdown_triggers_on_thermal_limit(self, easy_env):
         """Force a meltdown by setting node above thermal limit while busy."""
-        job_id = easy_env.job_queue[0]["id"]
-        easy_env.step(make_action(action_type="allocate", job_id=job_id, node_id=0))
+        # Inject a deterministic long-running job so it stays busy
+        easy_env.job_queue = [{"id": "job_hot", "type": "batch", "duration": 10, "wait_time": 0, "deadline": 99}]
+        easy_env.step(make_action(action_type="allocate", job_id="job_hot", node_id=0))
+        assert easy_env.gpu_nodes[0]["status"] == "busy"
         # Set temperature strictly above the limit so physics triggers meltdown
         easy_env.gpu_nodes[0]["temperature"] = easy_env.thermal_limit + 1.0
         easy_env.step(make_action(action_type="wait"))

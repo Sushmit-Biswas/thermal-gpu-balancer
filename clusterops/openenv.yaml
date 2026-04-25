@@ -16,6 +16,7 @@ environment:
     - easy
     - medium
     - hard
+    - expert
   concurrent_sessions: true
 
 metadata:

@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # ─── Pydantic Request/Response Models ──────────────────────────────────────────
 
 class ResetRequest(BaseModel):
-    difficulty: str = Field(default="medium", description="Difficulty: easy, medium, hard")
+    difficulty: str = Field(default="medium", description="Difficulty: easy, medium, hard, expert")
 
 class StepRequest(BaseModel):
     action_type: str = Field(..., description="allocate, evict, cooldown, or wait")
@@ -64,6 +64,7 @@ class GraderResponse(BaseModel):
     completed_jobs: int = 0
     meltdowns: int = 0
     evictions: int = 0
+    thrashing_events: int = 0
     failed_jobs: int = 0
     total_reward: float = 0.0
 
@@ -104,7 +105,7 @@ async def root():
         "name": "ClusterOps: Thermal GPU Balancer",
         "version": "0.1.0",
         "description": "Manage a GPU data center under adversarial thermal constraints.",
-        "difficulties": ["easy", "medium", "hard"],
+        "difficulties": ["easy", "medium", "hard", "expert"],
         "actions": ["allocate", "evict", "cooldown", "wait"],
         "endpoints": {
             "POST /reset": "Start a new episode",
@@ -190,7 +191,7 @@ async def schema():
             "batch": {"heat_rate": 5.0, "reward_on_complete": 8.0, "queue_penalty": -0.2},
         },
         "node_statuses": ["idle", "busy", "cooldown", "failed"],
-        "difficulty_levels": ["easy", "medium", "hard"],
+        "difficulty_levels": ["easy", "medium", "hard", "expert"],
     }
 
 
@@ -279,7 +280,7 @@ async def curriculum(x_session_id: Optional[str] = Header(default=None)):
         "current_difficulty": env.difficulty,
         "suggested_next": env.curriculum_difficulty(),
         "current_score": env.grade(),
-        "thresholds": {"easy_to_medium": 0.65, "medium_to_hard": 0.70},
+        "thresholds": {"easy_to_medium": 0.65, "medium_to_hard": 0.70, "hard_to_expert": 0.75},
     }
 
 
