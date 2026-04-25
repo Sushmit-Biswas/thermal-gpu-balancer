@@ -57,6 +57,26 @@ We use OpenEnv's **Composable Rubric** system to prevent exploitation:
 3.  **Efficiency (20%)**: Massive 3x penalty for "Thrashing" (allocating and immediately evicting jobs to reset timers).
 4.  **SLA Compliance (15%)**: Immediate episode termination if the queue saturates (passive stalling).
 
+## 🧠 Training Insights (GRPO + TRL)
+
+### What the agent learned (from the reward signal alone)
+1. **Spatial Buffer Zones:** In the `02_spatial_bleed` scenario, the agent stopped packing nodes adjacently. It discovered that leaving `node[2]` idle between two heavy VIP jobs on `node[1]` and `node[3]` prevented cascading 85°C heat bleed.
+2. **Pre-Cooling:** In `05_adversarial`, the agent stopped allocating low-priority batch jobs when the queue was quiet. Instead, it spammed the `cooldown` action to drop idle nodes to their 35°C floor *before* the 15-job VIP spike arrived.
+3. **Semantic Hardware Matching:** In `03_heterogeneous`, the agent learned the physical topology. It exclusively routed `vip_training` jobs to even-numbered H100 nodes, keeping the slower T4 nodes for `batch` processing.
+
+### What we learned (from the agent's failures)
+1. **The 'Thrashing' Exploit:** Initially, the agent found a loop to game the SLA. It would `allocate` a job, and right before meltdown, `evict` it, resetting the thermal timer but not failing the SLA. We had to implement a **3x Thrashing Penalty** if a job is evicted within 2 steps of allocation.
+2. **Passive Stalling:** Early on, the agent realized doing nothing (`wait`) meant 0 meltdowns. It achieved perfect Thermal Safety (35% of rubric) by never running a single job. We had to introduce the **Queue Saturation Limit** (immediate termination if queue > 2x nodes) to force it to act.
+3. **LLM Hallucinations:** The agent would sometimes try to allocate jobs to `node_id: 11` (on a 10-node cluster). We hardened the FastAPI schema and added a -5.0 reward penalty for out-of-bounds actions, forcing the model to learn the strict bounds of the API.
+
+---
+
+## 🚀 Mandatory Submission Links
+
+*   **Hugging Face Space:** [ClusterOps Space (Deployed)](#) *(Insert HF Space URL here)*
+*   **Mini-Blog Writeup:** [Read our Hugging Face Post](HUGGING_FACE_POST.md)
+*   **Colab Training Script:** [Open in Google Colab](ClusterOps_GRPO_Training.ipynb) (Uses HF TRL & Unsloth)
+
 ---
 
 ## ⚙️ How It Works (Workflow)
