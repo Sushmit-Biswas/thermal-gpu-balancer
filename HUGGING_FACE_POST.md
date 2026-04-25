@@ -2,7 +2,7 @@
 
 > **Our submission for the Meta OpenEnv Hackathon (India 2026)**
 > **Theme:** 3.1 - World Modeling & Professional Tasks
-> **Live Space:** [Link to Space](#) | **Code:** [GitHub Repo](#) | **Colab:** [Training Script](#)
+> **Live Space:** [neer-biswas/thermal-gpu-balancer](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer) | **Code:** [GitHub](https://github.com/Sushmit-Biswas/thermal-gpu-balancer) | **Colab:** [Training Script](https://github.com/Sushmit-Biswas/thermal-gpu-balancer/blob/main/training/ClusterOps_GRPO_Training.ipynb)
 
 We wanted to answer a ridiculous question: **Can an LLM learn fluid dynamics and thermal management from a simple JSON `/step` endpoint?**
 

@@ -14,16 +14,18 @@ import os
 import logging
 import sys
 from typing import Optional, List, Dict, Any
-from uuid import uuid4
 from fastapi import FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
+
 
 # Ensure the parent directory is in the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from models import ClusteropsAction, ClusteropsObservation
-from server.clusterops_environment import ClusteropsEnvironment
+from clusterops.models import ClusteropsAction, ClusteropsObservation
+from clusterops.environment import ClusteropsEnvironment
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -91,6 +93,11 @@ _sessions: Dict[str, ClusteropsEnvironment] = {}
 _DEFAULT_SESSION = "default"
 _sessions[_DEFAULT_SESSION] = ClusteropsEnvironment()
 
+# Mount static UI
+_static_dir = os.path.join(os.path.dirname(__file__), 'static')
+if os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
 
 def _get_env(session_id: Optional[str]) -> ClusteropsEnvironment:
     """Return the env for a given session ID, falling back to the default."""
@@ -100,20 +107,35 @@ def _get_env(session_id: Optional[str]) -> ClusteropsEnvironment:
     return _sessions[sid]
 
 
-@app.get("/")
+@app.get("/dashboard", include_in_schema=False)
+async def dashboard():
+    """Serve the visual dashboard UI."""
+    index = os.path.join(os.path.dirname(__file__), 'static', 'index.html')
+    return FileResponse(index)
+
+
+@app.get("/", include_in_schema=False)
 async def root():
+    """Redirect to live dashboard UI."""
+    return RedirectResponse(url='/dashboard')
+
+
+@app.get("/api", tags=["Meta"])
+async def api_info():
+    """Returns API info and endpoint listing."""
     return {
         "name": "ClusterOps: Thermal GPU Balancer",
         "version": "0.1.0",
         "description": "Manage a GPU data center under adversarial thermal constraints.",
-        "difficulties": ["easy", "medium", "hard", "expert"],
+        "scenarios": ["01_baseline", "02_spatial_bleed", "03_heterogeneous", "04_maintenance", "05_adversarial"],
         "actions": ["allocate", "evict", "cooldown", "wait"],
         "endpoints": {
             "POST /reset": "Start a new episode",
             "POST /step": "Submit an action",
             "GET /state": "Get current state",
             "GET /health": "Health check",
-            "POST /grader": "Get episode score",
+            "GET /grader/rubric": "Get composable rubric scores",
+            "GET /dashboard": "Visual UI dashboard",
         },
     }
 
@@ -255,7 +277,7 @@ async def state(x_session_id: Optional[str] = Header(default=None)):
     return {
         "episode_id": s.episode_id,
         "step_count": s.step_count,
-        "difficulty": env.difficulty,
+        "scenario": env.scenario,
         "total_reward": round(env.total_reward, 2),
     }
 

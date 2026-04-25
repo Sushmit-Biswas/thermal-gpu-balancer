@@ -20,7 +20,7 @@ from openenv.core.env_server.types import State
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from models import ClusteropsAction, ClusteropsObservation
+from clusterops.models import ClusteropsAction, ClusteropsObservation
 
 # ─── Job Priority Tiers ────────────────────────────────────────────────────────
 JOB_TYPES = {
@@ -98,21 +98,44 @@ SCENARIOS = {
     },
 }
 
+# ─── Legacy Difficulty Config (for testing/backward compatibility) ───
+DIFFICULTY_CONFIG = {
+    "easy": {"num_nodes": 6, "max_steps": 100, "spawn_rate": 0.3},
+    "medium": {"num_nodes": 10, "max_steps": 100, "spawn_rate": 0.4},
+    "hard": {"num_nodes": 16, "max_steps": 150, "spawn_rate": 0.5},
+    "expert": {"num_nodes": 20, "max_steps": 200, "spawn_rate": 0.6},
+}
+
+
 class ClusteropsEnvironment(Environment):
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
     def __init__(self, scenario: str = "01_baseline", **kwargs):
-        # Fallback for backward compatibility with 'difficulty' during tests
-        self.scenario = kwargs.get('difficulty', scenario)
-        if self.scenario not in SCENARIOS:
-            self.scenario = "01_baseline"
+        # Support both 'scenario' and legacy 'difficulty' kwargs
+        difficulty = kwargs.get('difficulty', None)
+        if difficulty and difficulty in DIFFICULTY_CONFIG:
+            self.scenario = difficulty  # store raw difficulty key; _init_state handles it
+        elif scenario in SCENARIOS:
+            self.scenario = scenario
+        else:
+            self.scenario = "01_baseline"  # any unknown falls back to baseline
         self._init_state()
 
+    @property
+    def difficulty(self):
+        """Expose scenario as difficulty for backward compat with tests & app.py."""
+        return self.scenario
+
     def _init_state(self):
-        config = SCENARIOS.get(self.scenario, SCENARIOS["01_baseline"])
+        if self.scenario in DIFFICULTY_CONFIG:
+            config = {**SCENARIOS["01_baseline"], **DIFFICULTY_CONFIG[self.scenario]}
+        else:
+            config = SCENARIOS.get(self.scenario, SCENARIOS["01_baseline"])
+        
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self.config = config
         self.num_nodes = config["num_nodes"]
+
         self.max_steps = config["max_steps"]
         self.thermal_limit = config["thermal_limit"]
         self.cool_rate = config["cool_rate"]
@@ -163,13 +186,16 @@ class ClusteropsEnvironment(Environment):
             self.next_job_id += 1
 
     def reset(self, scenario: str = None, difficulty: str = None) -> ClusteropsObservation:
-        target_scenario = scenario or difficulty or self.scenario
-        if target_scenario in SCENARIOS:
-            self.scenario = target_scenario
+        target = scenario or difficulty or self.scenario
+        if target in SCENARIOS:
+            self.scenario = target
+        elif target in DIFFICULTY_CONFIG:
+            self.scenario = target   # keep for _init_state to expand
         else:
             self.scenario = "01_baseline"
         self._init_state()
         return self._build_observation(f"Environment reset. Scenario: {self.scenario}")
+
 
     def step(self, action: ClusteropsAction) -> ClusteropsObservation:  # type: ignore[override]
         self._state.step_count += 1

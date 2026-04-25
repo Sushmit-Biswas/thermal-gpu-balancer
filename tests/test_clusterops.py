@@ -12,10 +12,8 @@ import pytest
 import random
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "server")))
-
-from server.clusterops_environment import ClusteropsEnvironment, JOB_TYPES, SCENARIOS
-from models import ClusteropsAction
+from clusterops.environment import ClusteropsEnvironment, JOB_TYPES, SCENARIOS, DIFFICULTY_CONFIG
+from clusterops.models import ClusteropsAction
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
