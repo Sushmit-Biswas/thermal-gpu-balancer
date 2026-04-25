@@ -6,6 +6,6 @@
 
 """Clusterops environment server components."""
 
-from .clusterops_environment import ClusteropsEnvironment
+from clusterops.environment import ClusteropsEnvironment
 
 __all__ = ["ClusteropsEnvironment"]

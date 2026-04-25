@@ -23,7 +23,7 @@ import copy
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 
-from models import ClusteropsAction, ClusteropsObservation
+from clusterops.models import ClusteropsAction, ClusteropsObservation
 
 # ─── Job Priority Tiers ────────────────────────────────────────────────────────
 JOB_TYPES = {

@@ -15,10 +15,12 @@ import logging
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from models import ClusteropsAction, ClusteropsObservation
-from server.clusterops_environment import (
+from clusterops.models import ClusteropsAction, ClusteropsObservation
+from clusterops.environment import (
     ClusteropsEnvironment,
     DIFFICULTY_CONFIG,
     SCENARIOS,
@@ -129,8 +131,22 @@ def _obs_to_response(obs: ClusteropsObservation) -> StepResponse:
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────────
 
+@app.get("/dashboard", include_in_schema=False)
+async def dashboard():
+    """Serve the visual dashboard UI."""
+    import os
+    index = os.path.join(os.path.dirname(__file__), 'static', 'index.html')
+    return FileResponse(index)
+
+
 @app.get("/")
 async def root():
+    """Redirect to live dashboard UI."""
+    return RedirectResponse(url='/dashboard')
+
+
+@app.get("/api", tags=["Meta"])
+async def api_info():
     return {
         "name": "ClusterOps: Thermal GPU Balancer",
         "version": "0.1.0",

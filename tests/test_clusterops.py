@@ -13,8 +13,8 @@ import random
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from server.clusterops_environment import ClusteropsEnvironment, JOB_TYPES, DIFFICULTY_CONFIG
-from models import ClusteropsAction
+from clusterops.environment import ClusteropsEnvironment, JOB_TYPES, DIFFICULTY_CONFIG
+from clusterops.models import ClusteropsAction
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────

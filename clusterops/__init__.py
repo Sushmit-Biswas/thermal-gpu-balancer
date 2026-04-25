@@ -6,4 +6,4 @@
 try:
     from .models import ClusteropsAction, ClusteropsObservation
 except ImportError:
-    from models import ClusteropsAction, ClusteropsObservation
+    from clusterops.models import ClusteropsAction, ClusteropsObservation

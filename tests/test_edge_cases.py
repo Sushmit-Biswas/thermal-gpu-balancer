@@ -9,8 +9,8 @@ import random
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from server.clusterops_environment import ClusteropsEnvironment, JOB_TYPES
-from models import ClusteropsAction
+from clusterops.environment import ClusteropsEnvironment, JOB_TYPES
+from clusterops.models import ClusteropsAction
 
 def make_action(**kwargs):
     defaults = {"action_type": "wait", "job_id": "", "node_id": -1}

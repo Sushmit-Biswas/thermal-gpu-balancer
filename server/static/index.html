@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ClusterOps — Thermal GPU Balancer</title>
+  <meta name="description" content="Live dashboard for the ClusterOps OpenEnv environment. Watch an LLM agent manage a GPU data center under adversarial thermal constraints.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #060810;
+      --surface: #0d1117;
+      --surface-2: #161b22;
+      --surface-3: #1c2230;
+      --border: #21262d;
+      --border-hover: #30363d;
+      --text: #e6edf3;
+      --text-muted: #7d8590;
+      --text-dim: #3d444d;
+      --accent: #7f5af0;
+      --accent-glow: rgba(127,90,240,0.25);
+      --green: #2cb67d;
+      --green-glow: rgba(44,182,125,0.2);
+      --red: #ef4565;
+      --red-glow: rgba(239,69,101,0.25);
+      --yellow: #f9a826;
+      --yellow-glow: rgba(249,168,38,0.2);
+      --cyan: #58cced;
+      --purple: #a855f7;
+      --font: 'Inter', sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Animated background grid ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(127,90,240,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(127,90,240,0.03) 1px, transparent 1px);
+      background-size: 32px 32px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ══════════════ HEADER ══════════════ */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(6,8,16,0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, #ef4565, #f9a826);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 0 20px rgba(239,69,101,0.4);
+      animation: pulse-fire 2s ease-in-out infinite;
+    }
+    @keyframes pulse-fire {
+      0%,100% { box-shadow: 0 0 20px rgba(239,69,101,0.4); }
+      50%      { box-shadow: 0 0 35px rgba(249,168,38,0.6); }
+    }
+    .logo h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.3px; }
+    .logo span { color: var(--accent); }
+
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    .badge {
+      font-size: 11px; font-family: var(--mono);
+      padding: 4px 10px; border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+    .badge.live { border-color: var(--green); color: var(--green); animation: blink 1.5s step-end infinite; }
+    @keyframes blink { 50% { opacity: 0.4; } }
+
+    /* ══════════════ LAYOUT ══════════════ */
+    main { position: relative; z-index: 1; padding: 24px; max-width: 1600px; margin: 0 auto; }
+
+    /* ── Hero Banner ── */
+    .hero {
+      background: linear-gradient(135deg, rgba(127,90,240,0.12) 0%, rgba(239,69,101,0.08) 100%);
+      border: 1px solid rgba(127,90,240,0.25);
+      border-radius: 16px;
+      padding: 28px 32px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .hero-text h2 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .hero-text p  { color: var(--text-muted); font-size: 14px; max-width: 520px; line-height: 1.6; }
+    .hero-meta { display: flex; gap: 24px; flex-shrink: 0; }
+    .meta-item { text-align: center; }
+    .meta-item .val { font-size: 28px; font-weight: 700; font-family: var(--mono); line-height: 1; }
+    .meta-item .lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+    .meta-item .val.green { color: var(--green); }
+    .meta-item .val.red   { color: var(--red); }
+    .meta-item .val.yellow { color: var(--yellow); }
+    .meta-item .val.purple { color: var(--purple); }
+
+    /* ── Controls bar ── */
+    .controls {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    select, button {
+      font-family: var(--font); font-size: 13px;
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    select:hover, button:hover { border-color: var(--border-hover); background: var(--surface-3); }
+    button.primary {
+      background: linear-gradient(135deg, var(--accent), #a855f7);
+      border: none; color: white; font-weight: 600;
+      padding: 8px 20px;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+    button.primary:hover { transform: translateY(-1px); box-shadow: 0 0 30px var(--accent-glow); }
+    button.danger { border-color: var(--red); color: var(--red); }
+    button.danger:hover { background: rgba(239,69,101,0.1); }
+    button:active { transform: scale(0.97); }
+
+    label.ctrl-label { font-size: 13px; color: var(--text-muted); }
+    .ctrl-sep { width: 1px; height: 32px; background: var(--border); margin: 0 4px; }
+    .auto-badge {
+      font-size: 11px; font-family: var(--mono);
+      padding: 4px 10px; border-radius: 20px;
+      border: 1px solid var(--green); color: var(--green);
+      background: rgba(44,182,125,0.06);
+    }
+
+    /* ══════════════ GRID ══════════════ */
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+    .grid-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 20px; }
+    .grid-full { margin-bottom: 20px; }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: var(--border-hover); }
+    .card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 13px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      color: var(--text-muted);
+    }
+    .card-badge {
+      font-size: 11px; font-family: var(--mono);
+      padding: 2px 8px; border-radius: 4px;
+      background: var(--surface-2); color: var(--text-muted);
+    }
+
+    /* ══════════════ GPU NODES HEATMAP ══════════════ */
+    #gpu-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap: 10px;
+    }
+
+    .gpu-node {
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 12px;
+      background: var(--surface-2);
+      cursor: default;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .gpu-node::after {
+      content: '';
+      position: absolute; inset: 0;
+      opacity: 0; transition: opacity 0.3s;
+      border-radius: 10px;
+    }
+    .gpu-node.idle    { border-color: rgba(44,182,125,0.3); }
+    .gpu-node.idle::after  { background: linear-gradient(135deg, rgba(44,182,125,0.05), transparent); opacity: 1; }
+    .gpu-node.busy    { border-color: rgba(249,168,38,0.5); animation: busy-pulse 2s ease-in-out infinite; }
+    .gpu-node.busy::after  { background: linear-gradient(135deg, rgba(249,168,38,0.08), transparent); opacity: 1; }
+    .gpu-node.cooldown { border-color: rgba(88,204,237,0.5); }
+    .gpu-node.cooldown::after { background: linear-gradient(135deg, rgba(88,204,237,0.08), transparent); opacity: 1; }
+    .gpu-node.failed  { border-color: rgba(239,69,101,0.5); animation: failed-pulse 1.5s ease-in-out infinite; }
+    .gpu-node.failed::after  { background: linear-gradient(135deg, rgba(239,69,101,0.1), transparent); opacity: 1; }
+    .gpu-node.warning { border-color: rgba(249,168,38,0.8); }
+
+    @keyframes busy-pulse   { 0%,100% { box-shadow: 0 0 0 0 rgba(249,168,38,0); }  50% { box-shadow: 0 0 12px 2px rgba(249,168,38,0.2); } }
+    @keyframes failed-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,69,101,0); } 50% { box-shadow: 0 0 12px 2px rgba(239,69,101,0.3); } }
+
+    .node-id { font-size: 10px; font-family: var(--mono); color: var(--text-dim); margin-bottom: 4px; }
+    .node-temp {
+      font-size: 22px; font-weight: 700; font-family: var(--mono);
+      line-height: 1; margin-bottom: 4px;
+      transition: color 0.5s;
+    }
+    .node-unit { font-size: 12px; font-weight: 400; color: var(--text-muted); }
+    .node-status {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+      font-weight: 600; margin-bottom: 6px;
+    }
+    .node-status.idle    { color: var(--green); }
+    .node-status.busy    { color: var(--yellow); }
+    .node-status.cooldown { color: var(--cyan); }
+    .node-status.failed  { color: var(--red); }
+
+    /* Thermal bar */
+    .thermal-bar {
+      width: 100%; height: 4px;
+      background: var(--surface-3);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+    .thermal-fill {
+      height: 100%; border-radius: 2px;
+      transition: width 0.6s ease, background 0.6s ease;
+    }
+    .node-job {
+      font-size: 9px; font-family: var(--mono);
+      color: var(--text-dim);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* ══════════════ JOB QUEUE ══════════════ */
+    #job-queue-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; }
+    #job-queue-list::-webkit-scrollbar { width: 4px; }
+    #job-queue-list::-webkit-scrollbar-track { background: transparent; }
+    #job-queue-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .job-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      transition: all 0.2s;
+      animation: slide-in 0.3s ease;
+    }
+    @keyframes slide-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+    .job-item:hover { border-color: var(--border-hover); }
+
+    .job-type-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .job-type-dot.vip_training { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .job-type-dot.inference    { background: var(--cyan); }
+    .job-type-dot.batch        { background: var(--text-muted); }
+
+    .job-info { flex: 1; min-width: 0; }
+    .job-id   { font-size: 12px; font-family: var(--mono); font-weight: 500; }
+    .job-meta { font-size: 10px; color: var(--text-muted); }
+
+    .job-wait {
+      font-size: 11px; font-family: var(--mono);
+      padding: 2px 8px; border-radius: 4px;
+    }
+    .job-wait.ok      { color: var(--green); background: rgba(44,182,125,0.1); }
+    .job-wait.warn    { color: var(--yellow); background: rgba(249,168,38,0.1); }
+    .job-wait.danger  { color: var(--red); background: rgba(239,69,101,0.1); }
+    .job-deadline { font-size: 10px; color: var(--text-dim); font-family: var(--mono); }
+
+    .empty-state {
+      text-align: center; padding: 32px;
+      color: var(--text-dim); font-size: 13px;
+    }
+    .empty-state .icon { font-size: 28px; margin-bottom: 8px; }
+
+    /* ══════════════ RUBRIC SCORES ══════════════ */
+    .rubric-row {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 14px;
+    }
+    .rubric-label { font-size: 12px; width: 120px; flex-shrink: 0; color: var(--text-muted); }
+    .rubric-track {
+      flex: 1; height: 8px; background: var(--surface-2);
+      border-radius: 4px; overflow: hidden;
+    }
+    .rubric-fill {
+      height: 100%; border-radius: 4px;
+      transition: width 0.8s cubic-bezier(0.16,1,0.3,1);
+    }
+    .rubric-val { font-size: 12px; font-family: var(--mono); width: 48px; text-align: right; }
+
+    /* ══════════════ FEEDBACK LOG ══════════════ */
+    #feedback-log {
+      display: flex; flex-direction: column; gap: 6px;
+      max-height: 260px; overflow-y: auto;
+    }
+    #feedback-log::-webkit-scrollbar { width: 4px; }
+    #feedback-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .log-item {
+      display: flex; align-items: flex-start; gap: 8px;
+      font-size: 12px; font-family: var(--mono);
+      padding: 6px 10px; border-radius: 6px;
+      background: var(--surface-2);
+      animation: fade-in 0.3s ease;
+    }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+    .log-step { color: var(--text-dim); flex-shrink: 0; }
+    .log-msg { color: var(--text-muted); line-height: 1.4; }
+    .log-msg.alert   { color: var(--red); }
+    .log-msg.warn    { color: var(--yellow); }
+    .log-msg.success { color: var(--green); }
+    .log-msg.info    { color: var(--cyan); }
+    .log-reward { margin-left: auto; flex-shrink: 0; }
+    .log-reward.pos { color: var(--green); }
+    .log-reward.neg { color: var(--red); }
+
+    /* ══════════════ MINI STATS ══════════════ */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat-box {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px;
+    }
+    .stat-box .val { font-size: 26px; font-weight: 700; font-family: var(--mono); line-height: 1; }
+    .stat-box .lbl { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    .stat-box.green-stat { border-color: rgba(44,182,125,0.3); }
+    .stat-box.green-stat .val { color: var(--green); }
+    .stat-box.red-stat   { border-color: rgba(239,69,101,0.3); }
+    .stat-box.red-stat   .val { color: var(--red); }
+    .stat-box.yellow-stat { border-color: rgba(249,168,38,0.3); }
+    .stat-box.yellow-stat .val { color: var(--yellow); }
+    .stat-box.purple-stat { border-color: rgba(127,90,240,0.3); }
+    .stat-box.purple-stat .val { color: var(--accent); }
+
+    /* ══════════════ MANUAL AGENT ══════════════ */
+    .action-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .action-row select { flex: 1; min-width: 120px; }
+    .action-row input {
+      flex: 1; min-width: 100px;
+      font-family: var(--mono); font-size: 12px;
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 12px;
+    }
+    .action-row input:focus { outline: none; border-color: var(--accent); }
+
+    /* ══════════════ SCENARIO PILLS ══════════════ */
+    .scenario-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+    .pill {
+      font-size: 11px; font-family: var(--mono);
+      padding: 5px 12px; border-radius: 20px;
+      border: 1px solid var(--border); color: var(--text-muted);
+      cursor: pointer; transition: all 0.2s;
+    }
+    .pill:hover { border-color: var(--accent); color: var(--accent); }
+    .pill.active { border-color: var(--accent); color: var(--accent); background: rgba(127,90,240,0.1); }
+
+    /* ══════════════ TOAST ══════════════ */
+    #toast-container {
+      position: fixed; bottom: 24px; right: 24px;
+      display: flex; flex-direction: column; gap: 8px;
+      z-index: 999;
+    }
+    .toast {
+      font-size: 13px; padding: 12px 18px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      animation: slide-toast 0.3s ease;
+      max-width: 320px;
+    }
+    @keyframes slide-toast { from { opacity:0; transform: translateY(12px); } to { opacity:1; transform:none; } }
+    .toast.error { border-color: var(--red); background: rgba(239,69,101,0.08); color: var(--red); }
+    .toast.success { border-color: var(--green); background: rgba(44,182,125,0.08); color: var(--green); }
+    .toast.warn   { border-color: var(--yellow); background: rgba(249,168,38,0.08); color: var(--yellow); }
+
+    /* ══════════════ PROGRESS STEP ══════════════ */
+    .step-progress {
+      display: flex; align-items: center; gap: 10px;
+      margin-top: 6px;
+    }
+    .step-track {
+      flex: 1; height: 4px; background: var(--surface-2);
+      border-radius: 2px; overflow: hidden;
+    }
+    .step-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--purple));
+      border-radius: 2px;
+      transition: width 0.5s ease;
+    }
+    .step-text { font-size: 11px; font-family: var(--mono); color: var(--text-muted); }
+
+    /* ══════════════ RESPONSIVE ══════════════ */
+    @media (max-width: 900px) {
+      .grid-3 { grid-template-columns: 1fr; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .hero { flex-direction: column; gap: 16px; }
+      .hero-meta { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="toast-container"></div>
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🔥</div>
+    <h1>Cluster<span>Ops</span> — Thermal GPU Balancer</h1>
+  </div>
+  <div class="header-right">
+    <span class="badge" id="scenario-badge">01_baseline</span>
+    <span class="badge live" id="status-badge">⬤ LIVE</span>
+    <a href="https://github.com/Sushmit-Biswas/thermal-gpu-balancer" target="_blank" style="color: var(--text-muted); text-decoration:none; font-size:13px;">GitHub ↗</a>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── HERO ── -->
+  <div class="hero">
+    <div class="hero-text">
+      <h2>🧠 Live Environment Dashboard</h2>
+      <p>Interact with the OpenEnv-powered GPU cluster in real-time. Control an LLM agent managing thermal constraints, adversarial job queues, and cascading hardware failures.</p>
+    </div>
+    <div class="hero-meta">
+      <div class="meta-item">
+        <div class="val green" id="hero-score">—</div>
+        <div class="lbl">Grade</div>
+      </div>
+      <div class="meta-item">
+        <div class="val yellow" id="hero-reward">—</div>
+        <div class="lbl">Total Reward</div>
+      </div>
+      <div class="meta-item">
+        <div class="val purple" id="hero-step">0</div>
+        <div class="lbl">Step</div>
+      </div>
+      <div class="meta-item">
+        <div class="val red" id="hero-melt">0</div>
+        <div class="lbl">Meltdowns</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CONTROLS ── -->
+  <div class="controls">
+    <label class="ctrl-label">Scenario:</label>
+    <select id="scenario-select" onchange="changeScenario()">
+      <option value="01_baseline">01 — Baseline</option>
+      <option value="02_spatial_bleed">02 — Spatial Bleed</option>
+      <option value="03_heterogeneous">03 — Heterogeneous HW</option>
+      <option value="04_maintenance">04 — Maintenance</option>
+      <option value="05_adversarial">05 — Adversarial Spike</option>
+    </select>
+    <button class="primary" onclick="resetEnv()" id="btn-reset">⟳ Reset</button>
+    <div class="ctrl-sep"></div>
+    <label class="ctrl-label">Auto-step:</label>
+    <button onclick="toggleAuto()" id="btn-auto">▶ Start Auto</button>
+    <select id="auto-speed">
+      <option value="1000">1s</option>
+      <option value="500" selected>0.5s</option>
+      <option value="200">0.2s</option>
+    </select>
+    <button class="danger" onclick="clearLog()">✕ Clear Log</button>
+  </div>
+
+  <!-- ── SCENARIO PILLS ── -->
+  <div class="scenario-pills" id="scenario-pills">
+    <div class="pill active" onclick="selectScenario('01_baseline')">01 Baseline</div>
+    <div class="pill" onclick="selectScenario('02_spatial_bleed')">02 Spatial Bleed</div>
+    <div class="pill" onclick="selectScenario('03_heterogeneous')">03 Heterogeneous</div>
+    <div class="pill" onclick="selectScenario('04_maintenance')">04 Maintenance</div>
+    <div class="pill" onclick="selectScenario('05_adversarial')">05 Adversarial</div>
+  </div>
+
+  <!-- ── GPU NODES (full width) ── -->
+  <div class="card grid-full">
+    <div class="card-header">
+      <span class="card-title">🖥 GPU Node Cluster</span>
+      <span class="card-badge" id="node-count-badge">10 nodes</span>
+    </div>
+    <div id="gpu-grid"></div>
+    <div class="step-progress" style="margin-top:16px;">
+      <span class="step-text" id="step-label">Step 0 / 100</span>
+      <div class="step-track">
+        <div class="step-fill" id="step-fill" style="width:0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- ── JOB QUEUE ── -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">📋 Job Queue</span>
+        <span class="card-badge" id="queue-count">0 jobs</span>
+      </div>
+      <div id="job-queue-list">
+        <div class="empty-state"><div class="icon">💤</div>Queue is empty</div>
+      </div>
+    </div>
+
+    <!-- ── RIGHT COLUMN: Rubric + Stats + Manual ── -->
+    <div style="display:flex;flex-direction:column;gap:20px;">
+
+      <!-- Rubric -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">⚖ Rubric Score</span>
+          <span class="card-badge" id="total-score-badge">0.000</span>
+        </div>
+        <div id="rubric-display">
+          <div class="rubric-row">
+            <span class="rubric-label">Thermal Safety</span>
+            <div class="rubric-track"><div class="rubric-fill" id="rub-thermal" style="width:100%;background:var(--green)"></div></div>
+            <span class="rubric-val" id="rub-thermal-val">1.000</span>
+          </div>
+          <div class="rubric-row">
+            <span class="rubric-label">Throughput</span>
+            <div class="rubric-track"><div class="rubric-fill" id="rub-throughput" style="width:0%;background:var(--cyan)"></div></div>
+            <span class="rubric-val" id="rub-throughput-val">0.000</span>
+          </div>
+          <div class="rubric-row">
+            <span class="rubric-label">Efficiency</span>
+            <div class="rubric-track"><div class="rubric-fill" id="rub-efficiency" style="width:100%;background:var(--accent)"></div></div>
+            <span class="rubric-val" id="rub-efficiency-val">1.000</span>
+          </div>
+          <div class="rubric-row">
+            <span class="rubric-label">SLA Compliance</span>
+            <div class="rubric-track"><div class="rubric-fill" id="rub-sla" style="width:100%;background:var(--yellow)"></div></div>
+            <span class="rubric-val" id="rub-sla-val">1.000</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">📊 Episode Stats</span></div>
+        <div class="stats-grid">
+          <div class="stat-box green-stat"><div class="val" id="stat-completed">0</div><div class="lbl">Jobs Completed</div></div>
+          <div class="stat-box red-stat"><div class="val" id="stat-meltdowns">0</div><div class="lbl">Meltdowns</div></div>
+          <div class="stat-box yellow-stat"><div class="val" id="stat-evictions">0</div><div class="lbl">Evictions</div></div>
+          <div class="stat-box purple-stat"><div class="val" id="stat-failed">0</div><div class="lbl">Failed Jobs</div></div>
+        </div>
+      </div>
+
+      <!-- Manual Action -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">🎮 Manual Action</span></div>
+        <div class="action-row">
+          <select id="action-type" onchange="onActionTypeChange()">
+            <option value="wait">wait</option>
+            <option value="allocate">allocate</option>
+            <option value="evict">evict</option>
+            <option value="cooldown">cooldown</option>
+          </select>
+          <input type="text" id="action-job-id" placeholder="job_id (allocate)" />
+          <input type="number" id="action-node-id" placeholder="node_id" min="0" />
+        </div>
+        <button class="primary" style="width:100%" onclick="manualStep()">⚡ Execute Action</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── FEEDBACK LOG ── -->
+  <div class="card grid-full">
+    <div class="card-header">
+      <span class="card-title">📟 Agent Feedback Log</span>
+      <span class="card-badge" id="log-count">0 events</span>
+    </div>
+    <div id="feedback-log"></div>
+  </div>
+
+</main>
+
+<script>
+  // ══════════════ STATE ══════════════
+  const API = window.location.origin;
+  let state = { done: false, step: 0, maxSteps: 100 };
+  let autoTimer = null;
+  let isAutoRunning = false;
+  let logCount = 0;
+  let currentScenario = '01_baseline';
+
+  // ══════════════ API ══════════════
+  async function apiPost(path, body = {}) {
+    const r = await fetch(`${API}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  }
+  async function apiGet(path) {
+    const r = await fetch(`${API}${path}`);
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  }
+
+  // ══════════════ RENDER ══════════════
+  function renderState(data) {
+    const obs = data.observation || data;
+    const meta = data.metadata || obs.metadata || {};
+    const rubric = meta.rubric || {};
+    const reward = data.reward ?? 0;
+    const done = data.done ?? false;
+
+    state.step = meta.step || 0;
+    state.maxSteps = meta.max_steps || 100;
+    state.done = done;
+
+    // Hero
+    const total = rubric.total ?? 0;
+    document.getElementById('hero-score').textContent = total.toFixed(3);
+    document.getElementById('hero-reward').textContent = (meta.total_reward ?? 0).toFixed(1);
+    document.getElementById('hero-step').textContent = state.step;
+    document.getElementById('hero-melt').textContent = obs.meltdowns ?? 0;
+
+    // Step bar
+    const pct = Math.min(100, (state.step / state.maxSteps) * 100);
+    document.getElementById('step-fill').style.width = pct + '%';
+    document.getElementById('step-label').textContent = `Step ${state.step} / ${state.maxSteps}`;
+
+    // Stats
+    document.getElementById('stat-completed').textContent = obs.completed_jobs ?? 0;
+    document.getElementById('stat-meltdowns').textContent = obs.meltdowns ?? 0;
+    document.getElementById('stat-evictions').textContent = meta.evictions ?? 0;
+    document.getElementById('stat-failed').textContent = meta.failed_jobs ?? 0;
+
+    // GPU Nodes
+    renderNodes(obs.gpu_nodes || []);
+
+    // Job Queue
+    renderQueue(obs.job_queue || []);
+
+    // Rubric
+    if (Object.keys(rubric).length) renderRubric(rubric);
+
+    // Feedback
+    if (obs.feedback) addLog(state.step, obs.feedback, reward);
+
+    // Done state
+    if (done) {
+      stopAuto();
+      toast(`Episode finished! Final score: ${total.toFixed(3)}`, 'success');
+    }
+  }
+
+  function tempColor(t, limit = 100) {
+    const r = t / limit;
+    if (r < 0.6) return `hsl(${160 - r * 60}, 80%, 55%)`; // green → yellow
+    if (r < 0.85) return `hsl(${60 - (r - 0.6) / 0.25 * 40}, 90%, 55%)`; // yellow → orange
+    return `hsl(0, 90%, 60%)`; // red
+  }
+
+  function renderNodes(nodes) {
+    const grid = document.getElementById('gpu-grid');
+    document.getElementById('node-count-badge').textContent = `${nodes.length} nodes`;
+
+    // Build or update nodes
+    nodes.forEach((n, i) => {
+      let el = document.getElementById(`node-${n.id}`);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'gpu-node';
+        el.id = `node-${n.id}`;
+        grid.appendChild(el);
+      }
+
+      const limit = 100;
+      const tempPct = Math.min(100, (n.temperature / limit) * 100);
+      const tColor = tempColor(n.temperature, limit);
+      const isWarn = n.temperature >= limit * 0.85;
+      const jobInfo = n.job_id ? `${n.job_id} (${n.job_type})` : '';
+
+      el.className = `gpu-node ${n.status}${isWarn && n.status !== 'failed' ? ' warning' : ''}`;
+      el.innerHTML = `
+        <div class="node-id">GPU #${n.id}${n.id % 2 === 0 ? ' 🔵' : ' 🟤'}</div>
+        <div class="node-temp" style="color:${tColor}">${n.temperature.toFixed(1)}<span class="node-unit">°C</span></div>
+        <div class="thermal-bar">
+          <div class="thermal-fill" style="width:${tempPct}%;background:${tColor}"></div>
+        </div>
+        <div class="node-status ${n.status}">${n.status.toUpperCase()}</div>
+        <div class="node-job">${jobInfo || '—'}</div>
+      `;
+    });
+
+    // Remove stale nodes
+    const existing = grid.querySelectorAll('.gpu-node');
+    existing.forEach(el => {
+      const id = parseInt(el.id.replace('node-', ''));
+      if (!nodes.find(n => n.id === id)) el.remove();
+    });
+  }
+
+  const JOB_PRIORITY = { vip_training: 'HIGH', inference: 'MED', batch: 'LOW' };
+
+  function renderQueue(jobs) {
+    const el = document.getElementById('job-queue-list');
+    document.getElementById('queue-count').textContent = `${jobs.length} jobs`;
+
+    if (!jobs.length) {
+      el.innerHTML = '<div class="empty-state"><div class="icon">💤</div>Queue is empty</div>';
+      return;
+    }
+    el.innerHTML = jobs.map(j => {
+      const wait = j.wait_time;
+      const deadline = j.deadline ?? 999;
+      const urgency = wait > deadline * 0.7 ? 'danger' : wait > deadline * 0.4 ? 'warn' : 'ok';
+      return `
+        <div class="job-item">
+          <div class="job-type-dot ${j.type}"></div>
+          <div class="job-info">
+            <div class="job-id">${j.id} <span style="font-size:10px;color:var(--text-dim)">[${j.type}]</span></div>
+            <div class="job-meta">dur: ${j.duration}  •  ${JOB_PRIORITY[j.type] || '—'}</div>
+          </div>
+          <span class="job-wait ${urgency}">⏱ ${wait}s</span>
+          <span class="job-deadline">dl:${deadline}</span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderRubric(r) {
+    const items = [
+      { id: 'thermal', key: 'thermal_safety', color: 'var(--green)' },
+      { id: 'throughput', key: 'throughput', color: 'var(--cyan)' },
+      { id: 'efficiency', key: 'efficiency', color: 'var(--accent)' },
+      { id: 'sla', key: 'sla_compliance', color: 'var(--yellow)' },
+    ];
+    items.forEach(({ id, key, color }) => {
+      const val = r[key] ?? 0;
+      document.getElementById(`rub-${id}`).style.width = (val * 100) + '%';
+      document.getElementById(`rub-${id}`).style.background = color;
+      document.getElementById(`rub-${id}-val`).textContent = val.toFixed(3);
+    });
+    document.getElementById('total-score-badge').textContent = (r.total ?? 0).toFixed(3);
+  }
+
+  function addLog(step, msg, reward) {
+    const el = document.getElementById('feedback-log');
+    logCount++;
+    document.getElementById('log-count').textContent = `${logCount} events`;
+
+    const isAlert = msg.includes('CRITICAL') || msg.includes('MELTDOWN') || msg.includes('THRASHING') || msg.includes('MAINTENANCE');
+    const isWarn  = msg.includes('WARNING') || msg.includes('DDoS') || msg.includes('ERROR');
+    const isOk    = msg.includes('Allocated') || msg.includes('completed') || msg.includes('reset');
+    const isInfo  = msg.includes('Evicted') || msg.includes('cooling') || msg.includes('wait');
+
+    const cls = isAlert ? 'alert' : isWarn ? 'warn' : isOk ? 'success' : isInfo ? 'info' : '';
+    const rwSign = reward > 0 ? '+' : '';
+    const rwClass = reward >= 0 ? 'pos' : 'neg';
+
+    const item = document.createElement('div');
+    item.className = 'log-item';
+    item.innerHTML = `
+      <span class="log-step">[${String(step).padStart(3,'0')}]</span>
+      <span class="log-msg ${cls}">${msg}</span>
+      <span class="log-reward ${rwClass}">${rwSign}${reward.toFixed(1)}</span>
+    `;
+    el.prepend(item);
+
+    // Keep max 80 entries
+    while (el.children.length > 80) el.removeChild(el.lastChild);
+  }
+
+  // ══════════════ ACTIONS ══════════════
+  async function resetEnv() {
+    try {
+      const scenario = document.getElementById('scenario-select').value;
+      currentScenario = scenario;
+      document.getElementById('scenario-badge').textContent = scenario;
+      document.getElementById('feedback-log').innerHTML = '';
+      document.getElementById('gpu-grid').innerHTML = '';
+      logCount = 0;
+      state.done = false;
+
+      updatePills(scenario);
+
+      const data = await apiPost('/reset', { scenario });
+      renderState(data);
+      toast(`Reset to ${scenario}`, 'success');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function stepAuto() {
+    if (state.done) { stopAuto(); return; }
+    try {
+      const obs = await apiGet('/state').catch(() => null);
+      // Simple greedy: allocate first job to first idle node, else wait
+      const data = await apiPost('/step', { action_type: 'wait' });
+      // Fetch rubric separately for rich render
+      const rubric = await apiGet('/grader/rubric').catch(() => ({}));
+      data.metadata = { ...(data.metadata || {}), rubric };
+      renderState(data);
+    } catch (e) { toast(e.message, 'error'); stopAuto(); }
+  }
+
+  async function manualStep() {
+    if (state.done) { toast('Episode is done. Reset first.', 'warn'); return; }
+    const type = document.getElementById('action-type').value;
+    const job_id = document.getElementById('action-job-id').value.trim();
+    const node_id = parseInt(document.getElementById('action-node-id').value) || -1;
+    try {
+      const data = await apiPost('/step', { action_type: type, job_id, node_id });
+      const rubric = await apiGet('/grader/rubric').catch(() => ({}));
+      data.metadata = { ...(data.metadata || {}), rubric };
+      renderState(data);
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  function toggleAuto() {
+    if (isAutoRunning) stopAuto();
+    else startAuto();
+  }
+
+  function startAuto() {
+    if (state.done) { toast('Reset the environment first.', 'warn'); return; }
+    isAutoRunning = true;
+    document.getElementById('btn-auto').textContent = '⏸ Pause Auto';
+    document.getElementById('btn-auto').style.borderColor = 'var(--yellow)';
+    const speed = parseInt(document.getElementById('auto-speed').value);
+    autoTimer = setInterval(stepAuto, speed);
+  }
+
+  function stopAuto() {
+    isAutoRunning = false;
+    clearInterval(autoTimer);
+    document.getElementById('btn-auto').textContent = '▶ Start Auto';
+    document.getElementById('btn-auto').style.borderColor = '';
+  }
+
+  function clearLog() {
+    document.getElementById('feedback-log').innerHTML = '';
+    logCount = 0;
+    document.getElementById('log-count').textContent = '0 events';
+  }
+
+  function selectScenario(s) {
+    document.getElementById('scenario-select').value = s;
+    updatePills(s);
+    resetEnv();
+  }
+
+  function changeScenario() {
+    updatePills(document.getElementById('scenario-select').value);
+  }
+
+  function updatePills(active) {
+    document.querySelectorAll('.pill').forEach(p => {
+      const text = p.textContent.trim();
+      p.classList.toggle('active', text.includes(active.split('_')[0]) );
+    });
+  }
+
+  function onActionTypeChange() {
+    const t = document.getElementById('action-type').value;
+    document.getElementById('action-job-id').disabled = t !== 'allocate';
+    document.getElementById('action-node-id').disabled = t === 'wait';
+  }
+
+  // ══════════════ TOAST ══════════════
+  function toast(msg, type = 'info') {
+    const c = document.getElementById('toast-container');
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.textContent = msg;
+    c.appendChild(el);
+    setTimeout(() => el.remove(), 3500);
+  }
+
+  // ══════════════ INIT ══════════════
+  window.addEventListener('DOMContentLoaded', async () => {
+    onActionTypeChange();
+    try {
+      // Try to load current state first
+      const rubric = await apiGet('/grader/rubric');
+      // Cold start — just reset
+      await resetEnv();
+    } catch {
+      toast('Connecting to ClusterOps server...', 'warn');
+      setTimeout(resetEnv, 1500);
+    }
+  });
+</script>
+</body>
+</html>
