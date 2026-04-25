@@ -7,18 +7,21 @@ ClusterOps: Thermal GPU Balancer Environment Implementation.
 A high-stakes data center scheduler simulation where an LLM agent must
 allocate GPU training/inference jobs across a cluster of nodes while managing
 adversarial thermal constraints, job priorities, and operational scenarios.
+
+The environment supports two orthogonal axes of configuration:
+  - **Difficulty** (easy/medium/hard/expert): Controls cluster size, spawn
+    rates, thermal limits, and max steps.
+  - **Scenario** (01_baseline .. 05_adversarial): Controls physics
+    variations like spatial heat bleed, heterogeneous hardware, scheduled
+    maintenance, and traffic spikes.
 """
 
-import os
-import sys
 from uuid import uuid4
 import random
 import copy
 
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from models import ClusteropsAction, ClusteropsObservation
 
@@ -44,72 +47,135 @@ JOB_TYPES = {
     },
 }
 
-# ─── Operational Scenarios (Curriculum) ─────────────────────────────────────────
-SCENARIOS = {
-    "01_baseline": {
-        "num_nodes": 10,
-        "max_steps": 100,
-        "spawn_rate": 0.4,
-        "max_spawn": 2,
-        "thermal_limit": 100.0,
-        "cool_rate": 10.0,
-        "initial_jobs": 3,
-        "description": "Standard Operations. All nodes are equal. Standard job flow.",
-    },
-    "02_spatial_bleed": {
-        "num_nodes": 10,
-        "max_steps": 100,
-        "spawn_rate": 0.4,
-        "max_spawn": 2,
-        "thermal_limit": 100.0,
-        "cool_rate": 10.0,
-        "initial_jobs": 3,
-        "description": "Rack Thermodynamics. Heat bleeds (+3C) to adjacent nodes if a node hits 85C.",
-    },
-    "03_heterogeneous": {
-        "num_nodes": 10,
-        "max_steps": 100,
-        "spawn_rate": 0.4,
-        "max_spawn": 2,
-        "thermal_limit": 100.0,
-        "cool_rate": 10.0,
-        "initial_jobs": 3,
-        "description": "Hardware Diversity. Even IDs (H100): 2x speed, 2x heat. Odd IDs (T4): 1x speed, 0.5x heat.",
-    },
-    "04_maintenance": {
-        "num_nodes": 10,
-        "max_steps": 100,
+# ─── Difficulty Configurations ──────────────────────────────────────────────────
+# These control the overall cluster size and operational parameters.
+DIFFICULTY_CONFIG = {
+    "easy": {
+        "num_nodes": 6,
+        "max_steps": 60,
         "spawn_rate": 0.3,
+        "max_spawn": 1,
+        "thermal_limit": 100.0,
+        "cool_rate": 12.0,
+        "initial_jobs": 2,
+    },
+    "medium": {
+        "num_nodes": 10,
+        "max_steps": 100,
+        "spawn_rate": 0.4,
         "max_spawn": 2,
         "thermal_limit": 100.0,
         "cool_rate": 10.0,
         "initial_jobs": 3,
-        "description": "Scheduled Outage. Nodes 0-4 go offline at step 35 (warning at step 20).",
     },
-    "05_adversarial": {
-        "num_nodes": 10,
-        "max_steps": 100,
-        "spawn_rate": 0.0,
-        "max_spawn": 0,
-        "thermal_limit": 100.0,
-        "cool_rate": 10.0,
-        "initial_jobs": 0,
-        "description": "Traffic Spikes. Queue is empty, then 15 VIP jobs suddenly drop at step 10.",
+    "hard": {
+        "num_nodes": 16,
+        "max_steps": 120,
+        "spawn_rate": 0.5,
+        "max_spawn": 3,
+        "thermal_limit": 95.0,
+        "cool_rate": 8.0,
+        "initial_jobs": 5,
+    },
+    "expert": {
+        "num_nodes": 20,
+        "max_steps": 150,
+        "spawn_rate": 0.6,
+        "max_spawn": 4,
+        "thermal_limit": 90.0,
+        "cool_rate": 6.0,
+        "initial_jobs": 8,
     },
 }
 
+# ─── Scenario Definitions ───────────────────────────────────────────────────────
+# Scenarios define physics variations layered ON TOP of the difficulty config.
+SCENARIOS = {
+    "01_baseline": {
+        "description": "Standard Operations. All nodes are equal. Standard job flow.",
+    },
+    "02_spatial_bleed": {
+        "description": "Rack Thermodynamics. Heat bleeds (+3C) to adjacent nodes if a node hits 85C.",
+    },
+    "03_heterogeneous": {
+        "description": "Hardware Diversity. Even IDs (H100): 2x speed, 2x heat. Odd IDs (T4): 1x speed, 0.5x heat.",
+    },
+    "04_maintenance": {
+        "description": "Scheduled Outage. Nodes 0-4 go offline at step 35 (warning at step 20).",
+    },
+    "05_adversarial": {
+        "description": "Traffic Spikes. Queue is empty, then 15 VIP jobs suddenly drop at step 10.",
+        "override_spawn_rate": 0.0,
+        "override_max_spawn": 0,
+        "override_initial_jobs": 0,
+    },
+}
+
+
 class ClusteropsEnvironment(Environment):
+    """
+    OpenEnv-compliant environment for GPU cluster thermal management.
+
+    Implements the standard OpenEnv interface:
+      - reset(difficulty) → Observation
+      - step(action)      → Observation
+      - state (property)  → State
+      - grade()           → float
+    """
+
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
-    def __init__(self, scenario: str = "01_baseline", **kwargs):
-        # Fallback for backward compatibility with 'difficulty' during tests
-        self.scenario = kwargs.get('difficulty', scenario)
-        if self.scenario not in SCENARIOS:
-            self.scenario = "01_baseline"
+    def __init__(self, difficulty: str = "medium", scenario: str = "01_baseline", **kwargs):
+        self._difficulty = self._validate_difficulty(difficulty)
+        self._scenario = self._validate_scenario(scenario)
         self._init_state()
 
+    # ─── Validation Helpers ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _validate_difficulty(difficulty: str) -> str:
+        """Validate and normalise difficulty string."""
+        if difficulty in DIFFICULTY_CONFIG:
+            return difficulty
+        return "medium"
+
+    @staticmethod
+    def _validate_scenario(scenario: str) -> str:
+        """Validate and normalise scenario string."""
+        if scenario in SCENARIOS:
+            return scenario
+        return "01_baseline"
+
+    # ─── Properties ─────────────────────────────────────────────────────────
+
+    @property
+    def difficulty(self) -> str:
+        """Current difficulty level."""
+        return self._difficulty
+
+    @property
+    def scenario(self) -> str:
+        """Current scenario name."""
+        return self._scenario
+
+    @property
+    def state(self) -> State:
+        """OpenEnv state property."""
+        return self._state
+
+    # ─── Initialisation ─────────────────────────────────────────────────────
+
     def _init_state(self):
-        config = SCENARIOS.get(self.scenario, SCENARIOS["01_baseline"])
+        """Initialise or re-initialise all environment state."""
+        config = DIFFICULTY_CONFIG[self._difficulty].copy()
+
+        # Apply scenario overrides (e.g. 05_adversarial zeroes out spawning)
+        scenario_def = SCENARIOS.get(self._scenario, {})
+        for key in ("override_spawn_rate", "override_max_spawn", "override_initial_jobs"):
+            base_key = key.replace("override_", "")
+            if key in scenario_def:
+                config[base_key] = scenario_def[key]
+
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self.config = config
         self.num_nodes = config["num_nodes"]
@@ -142,7 +208,10 @@ class ClusteropsEnvironment(Environment):
 
         self._spawn_jobs(config["initial_jobs"])
 
+    # ─── Job Spawning ───────────────────────────────────────────────────────
+
     def _spawn_jobs(self, count, specific_type=None):
+        """Add `count` random jobs to the queue."""
         for _ in range(count):
             job_type = specific_type or random.choices(
                 list(JOB_TYPES.keys()),
@@ -152,7 +221,7 @@ class ClusteropsEnvironment(Environment):
             props = JOB_TYPES[job_type]
             duration = random.randint(*props["duration_range"])
             deadline = random.randint(10, 15) if job_type == "vip_training" else random.randint(20, 35)
-            
+
             self.job_queue.append({
                 "id": f"job_{self.next_job_id}",
                 "type": job_type,
@@ -162,27 +231,38 @@ class ClusteropsEnvironment(Environment):
             })
             self.next_job_id += 1
 
-    def reset(self, scenario: str = None, difficulty: str = None) -> ClusteropsObservation:
-        target_scenario = scenario or difficulty or self.scenario
-        if target_scenario in SCENARIOS:
-            self.scenario = target_scenario
-        else:
-            self.scenario = "01_baseline"
-        self._init_state()
-        return self._build_observation(f"Environment reset. Scenario: {self.scenario}")
+    # ─── OpenEnv Interface ──────────────────────────────────────────────────
 
-    def step(self, action: ClusteropsAction) -> ClusteropsObservation:  # type: ignore[override]
+    def reset(self, difficulty: str = None, scenario: str = None) -> ClusteropsObservation:
+        """
+        Reset the environment for a new episode.
+
+        Args:
+            difficulty: One of 'easy', 'medium', 'hard', 'expert'.
+            scenario: One of '01_baseline' .. '05_adversarial'.
+        """
+        if difficulty is not None:
+            self._difficulty = self._validate_difficulty(difficulty)
+        if scenario is not None:
+            self._scenario = self._validate_scenario(scenario)
+        self._init_state()
+        return self._build_observation(
+            f"Environment reset. Difficulty: {self._difficulty}, Scenario: {self._scenario}"
+        )
+
+    def step(self, action: ClusteropsAction) -> ClusteropsObservation:
+        """Execute one time step given an agent action."""
         self._state.step_count += 1
         reward = 0.0
         feedback = ""
 
         # ─── Scenario-Specific Events ───
-        if self.scenario == "04_maintenance":
+        if self._scenario == "04_maintenance":
             if self._state.step_count == 20:
                 feedback += "WARNING: Scheduled Outage. Nodes 0-4 will go offline at step 35! "
             elif self._state.step_count == 35:
                 feedback += "MAINTENANCE: Nodes 0-4 are now offline! "
-                for i in range(5):
+                for i in range(min(5, self.num_nodes)):
                     if self.gpu_nodes[i]["status"] == "busy":
                         reward -= 50.0  # Catastrophic failure for not draining
                         self.failed_jobs += 1
@@ -191,7 +271,7 @@ class ClusteropsEnvironment(Environment):
                     self.gpu_nodes[i]["job_id"] = None
                     self.gpu_nodes[i]["job_type"] = None
 
-        if self.scenario == "05_adversarial":
+        if self._scenario == "05_adversarial":
             if self._state.step_count == 10:
                 self._spawn_jobs(15, specific_type="vip_training")
                 feedback += "DDoS ALERT: 15 VIP jobs just hit the queue! "
@@ -207,7 +287,7 @@ class ClusteropsEnvironment(Environment):
             act_reward, act_fb = 0.0, "Agent chose to wait."
         else:
             act_reward, act_fb = -5.0, f"Error: Unknown action type '{action.action_type}'."
-            
+
         reward += act_reward
         feedback += act_fb
 
@@ -218,7 +298,7 @@ class ClusteropsEnvironment(Environment):
         reward += self._age_queue()
 
         # ─── Random Jobs ───
-        if self.scenario not in ["05_adversarial"]:
+        if self._scenario != "05_adversarial":
             if random.random() < self.config["spawn_rate"]:
                 num = random.randint(1, self.config["max_spawn"])
                 self._spawn_jobs(num)
@@ -234,7 +314,10 @@ class ClusteropsEnvironment(Environment):
 
         return self._build_observation(feedback, reward, done)
 
+    # ─── Action Handlers ────────────────────────────────────────────────────
+
     def _handle_allocate(self, action):
+        """Handle the 'allocate' action."""
         job = next((j for j in self.job_queue if j["id"] == action.job_id), None)
         if not job:
             return -5.0, f"Error: Job '{action.job_id}' not found in queue."
@@ -253,6 +336,7 @@ class ClusteropsEnvironment(Environment):
         return 0.0, f"Allocated {job['id']} ({job['type']}) to Node {action.node_id}."
 
     def _handle_evict(self, action):
+        """Handle the 'evict' action."""
         if action.node_id < 0 or action.node_id >= self.num_nodes:
             return -5.0, f"Error: Node ID {action.node_id} out of range."
         node = self.gpu_nodes[action.node_id]
@@ -274,6 +358,7 @@ class ClusteropsEnvironment(Environment):
         return -10.0, f"Evicted {evicted_job} from Node {action.node_id}. Compute wasted."
 
     def _handle_cooldown(self, action):
+        """Handle the 'cooldown' action."""
         if action.node_id < 0 or action.node_id >= self.num_nodes:
             return -5.0, f"Error: Node ID {action.node_id} out of range."
         node = self.gpu_nodes[action.node_id]
@@ -282,17 +367,20 @@ class ClusteropsEnvironment(Environment):
         node["status"] = "cooldown"
         return 0.0, f"Force-cooling Node {action.node_id}."
 
+    # ─── Physics Simulation ─────────────────────────────────────────────────
+
     def _simulate_physics(self):
+        """Simulate one tick of thermal physics across all nodes."""
         reward = 0.0
-        
+
         # 1. Base Heat & Durations
         for node in self.gpu_nodes:
             if node["status"] == "busy":
                 job_type = node.get("job_type", "batch")
                 heat_rate = JOB_TYPES.get(job_type, JOB_TYPES["batch"])["heat_rate"]
-                
+
                 # 03_heterogeneous: Hardware Diversity
-                if self.scenario == "03_heterogeneous":
+                if self._scenario == "03_heterogeneous":
                     if node["id"] % 2 == 0:  # H100
                         heat_rate *= 2.0
                         node["job_duration_remaining"] -= 2
@@ -301,7 +389,7 @@ class ClusteropsEnvironment(Environment):
                         node["job_duration_remaining"] -= 1
                 else:
                     node["job_duration_remaining"] -= 1
-                    
+
                 node["temperature"] += heat_rate
 
                 if node["job_duration_remaining"] <= 0:
@@ -321,18 +409,20 @@ class ClusteropsEnvironment(Environment):
             elif node["status"] == "failed":
                 node["temperature"] = max(35.0, node["temperature"] - self.cool_rate * 1.5)
                 # 04_maintenance: offline nodes don't auto-recover
-                if self.scenario == "04_maintenance" and node["id"] <= 4 and self._state.step_count >= 35:
-                    pass
+                if self._scenario == "04_maintenance" and node["id"] < 5 and self._state.step_count >= 35:
+                    pass  # Stay failed
                 elif node["temperature"] <= 50.0:
                     node["status"] = "idle"
 
         # 2. Spatial Bleed (02_spatial_bleed)
-        if self.scenario == "02_spatial_bleed":
+        if self._scenario == "02_spatial_bleed":
             temps = [n["temperature"] for n in self.gpu_nodes]
             for i, temp in enumerate(temps):
                 if temp >= 85.0:
-                    if i > 0: self.gpu_nodes[i-1]["temperature"] += 3.0
-                    if i < self.num_nodes - 1: self.gpu_nodes[i+1]["temperature"] += 3.0
+                    if i > 0:
+                        self.gpu_nodes[i - 1]["temperature"] += 3.0
+                    if i < self.num_nodes - 1:
+                        self.gpu_nodes[i + 1]["temperature"] += 3.0
 
         # 3. Meltdown Check & Clamping
         for node in self.gpu_nodes:
@@ -345,12 +435,15 @@ class ClusteropsEnvironment(Environment):
                 node["job_id"] = None
                 node["job_type"] = None
                 node["job_duration_remaining"] = 0
-            
+
             node["temperature"] = round(node["temperature"], 1)
 
         return reward
 
+    # ─── Queue Aging ────────────────────────────────────────────────────────
+
     def _age_queue(self):
+        """Age all queued jobs and penalise for SLA violations."""
         penalty = 0.0
         remaining_jobs = []
         for job in self.job_queue:
@@ -364,8 +457,13 @@ class ClusteropsEnvironment(Environment):
         self.job_queue = remaining_jobs
         return penalty
 
+    # ─── Observation Builder ────────────────────────────────────────────────
+
     def _build_observation(self, feedback, reward=0.0, done=False):
-        thermal_warnings = sum(1 for n in self.gpu_nodes if n["temperature"] >= self.thermal_limit * 0.85)
+        """Construct a ClusteropsObservation from the current state."""
+        thermal_warnings = sum(
+            1 for n in self.gpu_nodes if n["temperature"] >= self.thermal_limit * 0.85
+        )
         return ClusteropsObservation(
             gpu_nodes=copy.deepcopy(self.gpu_nodes),
             job_queue=copy.deepcopy(self.job_queue),
@@ -378,7 +476,8 @@ class ClusteropsEnvironment(Environment):
             metadata={
                 "step": self._state.step_count,
                 "max_steps": self.max_steps,
-                "scenario": self.scenario,
+                "difficulty": self._difficulty,
+                "scenario": self._scenario,
                 "evictions": self.evictions,
                 "failed_jobs": self.failed_jobs,
                 "total_reward": round(self.total_reward, 2),
@@ -386,10 +485,14 @@ class ClusteropsEnvironment(Environment):
             },
         )
 
+    # ─── Grading ────────────────────────────────────────────────────────────
+
     def grade(self) -> float:
+        """Return the overall grade as a float in [0, 1]."""
         return self.grade_rubric()["total"]
 
     def grade_rubric(self) -> dict:
+        """Return a composable rubric breakdown for the episode."""
         max_possible = max(self.max_steps * 0.3, 1.0)
         thermal_safety = max(0.0, 1.0 - self.meltdowns * 0.20)
         throughput = min(self.completed_jobs / max_possible, 1.0)
@@ -398,10 +501,10 @@ class ClusteropsEnvironment(Environment):
         sla_compliance = max(0.0, 1.0 - (self.failed_jobs * 0.10))
 
         total = round(max(0.0, min(1.0, (
-            thermal_safety  * 0.35 +
-            throughput      * 0.30 +
-            efficiency      * 0.20 +
-            sla_compliance  * 0.15
+            thermal_safety * 0.35 +
+            throughput * 0.30 +
+            efficiency * 0.20 +
+            sla_compliance * 0.15
         ))), 4)
 
         return {
@@ -420,14 +523,10 @@ class ClusteropsEnvironment(Environment):
         }
 
     def curriculum_difficulty(self) -> str:
-        # Re-map legacy method to scenarios
+        """Suggest the next difficulty based on current score."""
         score = self.grade()
-        scenarios = list(SCENARIOS.keys())
-        idx = scenarios.index(self.scenario) if self.scenario in scenarios else 0
-        if score >= 0.70 and idx < len(scenarios) - 1:
-            return scenarios[idx + 1]
-        return self.scenario
-
-    @property
-    def state(self) -> State:
-        return self._state
+        difficulties = list(DIFFICULTY_CONFIG.keys())
+        idx = difficulties.index(self._difficulty) if self._difficulty in difficulties else 0
+        if score >= 0.70 and idx < len(difficulties) - 1:
+            return difficulties[idx + 1]
+        return self._difficulty

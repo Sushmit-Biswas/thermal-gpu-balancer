@@ -10,14 +10,18 @@ Strategy:
     3. Otherwise, wait.
 """
 
-import requests
+import os
 import sys
+import requests
 
-ENV_URL = "http://localhost:8000"
+ENV_URL = os.getenv("ENVIRONMENT_BASE_URL", "http://localhost:8000")
 
 
-def reset(difficulty="medium"):
-    resp = requests.post(f"{ENV_URL}/reset", json={"difficulty": difficulty})
+def reset(difficulty="medium", scenario="01_baseline"):
+    resp = requests.post(
+        f"{ENV_URL}/reset",
+        json={"difficulty": difficulty, "scenario": scenario},
+    )
     return resp.json()
 
 
@@ -30,12 +34,12 @@ def step(action_type, job_id="", node_id=-1):
     return resp.json()
 
 
-def run_baseline(difficulty="medium"):
+def run_baseline(difficulty="medium", scenario="01_baseline"):
     print(f"\n{'='*60}")
-    print(f"ClusterOps Baseline Agent | Difficulty: {difficulty}")
+    print(f"ClusterOps Baseline Agent | Difficulty: {difficulty} | Scenario: {scenario}")
     print(f"{'='*60}")
 
-    obs = reset(difficulty)
+    obs = reset(difficulty, scenario)
     obs_data = obs.get("observation", obs)
     total_reward = 0.0
     step_num = 0
@@ -102,18 +106,19 @@ def run_baseline(difficulty="medium"):
 
 def main():
     difficulty = sys.argv[1] if len(sys.argv) > 1 else "medium"
+    scenario = sys.argv[2] if len(sys.argv) > 2 else "01_baseline"
     rewards = []
     num_episodes = 3
 
-    print(f"\nRunning {num_episodes} baseline episodes on '{difficulty}' difficulty...\n")
+    print(f"\nRunning {num_episodes} baseline episodes on '{difficulty}' difficulty, '{scenario}' scenario...\n")
 
     for i in range(num_episodes):
         print(f"--- Episode {i+1}/{num_episodes} ---")
-        r = run_baseline(difficulty)
+        r = run_baseline(difficulty, scenario)
         rewards.append(r)
 
     print(f"\n{'='*60}")
-    print(f"BASELINE SUMMARY ({difficulty})")
+    print(f"BASELINE SUMMARY ({difficulty} / {scenario})")
     print(f"  Average Reward: {sum(rewards)/len(rewards):.1f}")
     print(f"  Best Reward:    {max(rewards):.1f}")
     print(f"  Worst Reward:   {min(rewards):.1f}")

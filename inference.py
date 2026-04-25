@@ -13,7 +13,7 @@ Usage:
     export API_BASE_URL="https://api-inference.huggingface.co/v1"
     export MODEL_NAME="meta-llama/Llama-3.1-8B-Instruct"
     export HF_TOKEN="hf_your_token"
-    python inference.py --difficulty medium --episodes 3
+    python inference.py --difficulty medium --scenario 01_baseline --episodes 3
 
     # Local vLLM:
     export API_BASE_URL="http://localhost:8080/v1"
@@ -56,8 +56,13 @@ Example:
 
 # ─── Environment Helpers ──────────────────────────────────────────────────────
 
-def env_reset(scenario: str = "01_baseline") -> dict:
-    resp = requests.post(f"{ENV_URL}/reset", json={"scenario": scenario}, timeout=10)
+def env_reset(difficulty: str = "medium", scenario: str = "01_baseline") -> dict:
+    """Reset the environment with the given difficulty and scenario."""
+    resp = requests.post(
+        f"{ENV_URL}/reset",
+        json={"difficulty": difficulty, "scenario": scenario},
+        timeout=10,
+    )
     resp.raise_for_status()
     return resp.json()
 
@@ -82,13 +87,14 @@ def format_observation(obs: dict, metadata: dict) -> str:
     queue = obs.get("job_queue", [])
     step = metadata.get("step", "?")
     max_steps = metadata.get("max_steps", "?")
+    difficulty = metadata.get("difficulty", "?")
     scenario = metadata.get("scenario", "?")
     meltdowns = obs.get("meltdowns", 0)
     completed = obs.get("completed_jobs", 0)
     warnings = obs.get("thermal_warnings", 0)
 
     lines = [
-        f"[STEP {step}/{max_steps}] Scenario={scenario} | "
+        f"[STEP {step}/{max_steps}] Difficulty={difficulty} Scenario={scenario} | "
         f"Completed={completed} Meltdowns={meltdowns} ThermalWarnings={warnings}",
         "THERMAL LIMIT: 100°C | WARNING THRESHOLD: 85°C",
         "",
@@ -166,13 +172,13 @@ def parse_action(text: str) -> dict:
         start = text.index("{")
         end = text.rindex("}") + 1
         data = json.loads(text[start:end])
-        
+
         # Handle CoT format: {"thought": "...", "action": {...}}
         if "action" in data and isinstance(data["action"], dict):
             if "thought" in data:
                 print(f"🧠 REASONING: {data['thought']}")
             return data["action"]
-            
+
         if "action_type" in data:
             return data
     except (ValueError, json.JSONDecodeError):
@@ -184,14 +190,18 @@ def parse_action(text: str) -> dict:
 
 # ─── Episode Runner ───────────────────────────────────────────────────────────
 
-def run_episode(scenario: str = "01_baseline", verbose: bool = True) -> dict:
+def run_episode(
+    difficulty: str = "medium",
+    scenario: str = "01_baseline",
+    verbose: bool = True,
+) -> dict:
     """Run a single episode with the LLM agent. Returns grade info."""
     if verbose:
         print(f"\n{'='*65}")
-        print(f"  ClusterOps LLM Agent  |  Scenario: {scenario}")
+        print(f"  ClusterOps LLM Agent  |  Difficulty: {difficulty}  |  Scenario: {scenario}")
         print(f"{'='*65}")
 
-    data = env_reset(scenario)
+    data = env_reset(difficulty, scenario)
     obs = data.get("observation", {})
     metadata = data.get("metadata", {})
     total_reward = 0.0
@@ -240,7 +250,18 @@ def run_episode(scenario: str = "01_baseline", verbose: bool = True) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="ClusterOps LLM Inference Agent")
-    parser.add_argument("--scenario", choices=["01_baseline", "02_spatial_bleed", "03_heterogeneous", "04_maintenance", "05_adversarial"], default="01_baseline")
+    parser.add_argument(
+        "--difficulty",
+        choices=["easy", "medium", "hard", "expert"],
+        default="medium",
+        help="Difficulty level controlling cluster size and thermal limits.",
+    )
+    parser.add_argument(
+        "--scenario",
+        choices=["01_baseline", "02_spatial_bleed", "03_heterogeneous", "04_maintenance", "05_adversarial"],
+        default="01_baseline",
+        help="Scenario controlling physics variations.",
+    )
     parser.add_argument("--episodes", type=int, default=1)
     args = parser.parse_args()
 
@@ -262,13 +283,13 @@ def main():
 
     for i in range(args.episodes):
         print(f"\n[Episode {i+1}/{args.episodes}]")
-        result = run_episode(scenario=args.scenario)
+        result = run_episode(difficulty=args.difficulty, scenario=args.scenario)
         all_rewards.append(result["total_reward"])
         all_grades.append(result["grade"].get("score", 0.0))
 
     if args.episodes > 1:
         print(f"\n{'='*65}")
-        print(f"SUMMARY over {args.episodes} episodes | difficulty={args.difficulty}")
+        print(f"SUMMARY over {args.episodes} episodes | difficulty={args.difficulty} scenario={args.scenario}")
         print(f"  Avg Reward:  {sum(all_rewards)/len(all_rewards):.1f}")
         print(f"  Best Reward: {max(all_rewards):.1f}")
         print(f"  Avg Grade:   {sum(all_grades)/len(all_grades):.4f}")
