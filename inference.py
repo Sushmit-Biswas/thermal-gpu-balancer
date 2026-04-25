@@ -29,7 +29,7 @@ import requests
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 ENV_URL = os.getenv("ENVIRONMENT_BASE_URL", "http://localhost:8000")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api-inference.huggingface.co/v1")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 MAX_NEW_TOKENS = 120
@@ -56,8 +56,8 @@ Example:
 
 # ─── Environment Helpers ──────────────────────────────────────────────────────
 
-def env_reset(difficulty: str = "medium") -> dict:
-    resp = requests.post(f"{ENV_URL}/reset", json={"difficulty": difficulty}, timeout=10)
+def env_reset(scenario: str = "01_baseline") -> dict:
+    resp = requests.post(f"{ENV_URL}/reset", json={"scenario": scenario}, timeout=10)
     resp.raise_for_status()
     return resp.json()
 
@@ -82,13 +82,13 @@ def format_observation(obs: dict, metadata: dict) -> str:
     queue = obs.get("job_queue", [])
     step = metadata.get("step", "?")
     max_steps = metadata.get("max_steps", "?")
-    difficulty = metadata.get("difficulty", "?")
+    scenario = metadata.get("scenario", "?")
     meltdowns = obs.get("meltdowns", 0)
     completed = obs.get("completed_jobs", 0)
     warnings = obs.get("thermal_warnings", 0)
 
     lines = [
-        f"[STEP {step}/{max_steps}] Difficulty={difficulty} | "
+        f"[STEP {step}/{max_steps}] Scenario={scenario} | "
         f"Completed={completed} Meltdowns={meltdowns} ThermalWarnings={warnings}",
         "THERMAL LIMIT: 100°C | WARNING THRESHOLD: 85°C",
         "",
@@ -184,14 +184,14 @@ def parse_action(text: str) -> dict:
 
 # ─── Episode Runner ───────────────────────────────────────────────────────────
 
-def run_episode(difficulty: str = "medium", verbose: bool = True) -> dict:
+def run_episode(scenario: str = "01_baseline", verbose: bool = True) -> dict:
     """Run a single episode with the LLM agent. Returns grade info."""
     if verbose:
         print(f"\n{'='*65}")
-        print(f"  ClusterOps LLM Agent  |  Difficulty: {difficulty}")
+        print(f"  ClusterOps LLM Agent  |  Scenario: {scenario}")
         print(f"{'='*65}")
 
-    data = env_reset(difficulty)
+    data = env_reset(scenario)
     obs = data.get("observation", {})
     metadata = data.get("metadata", {})
     total_reward = 0.0
@@ -240,7 +240,7 @@ def run_episode(difficulty: str = "medium", verbose: bool = True) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="ClusterOps LLM Inference Agent")
-    parser.add_argument("--difficulty", choices=["easy", "medium", "hard", "expert"], default="medium")
+    parser.add_argument("--scenario", choices=["01_baseline", "02_spatial_bleed", "03_heterogeneous", "04_maintenance", "05_adversarial"], default="01_baseline")
     parser.add_argument("--episodes", type=int, default=1)
     args = parser.parse_args()
 
@@ -248,21 +248,21 @@ def main():
     try:
         health = requests.get(f"{ENV_URL}/health", timeout=5)
         health.raise_for_status()
-        print(f"✅ Server healthy at {ENV_URL}")
+        print(f"Server healthy at {ENV_URL}")
     except Exception as e:
-        print(f"❌ Cannot reach environment server at {ENV_URL}: {e}")
+        print(f"Cannot reach environment server at {ENV_URL}: {e}")
         print("   Start the server with: uvicorn server.app:app --port 8000")
         sys.exit(1)
 
     if not HF_TOKEN and "huggingface" in API_BASE_URL.lower():
-        print("⚠️  HF_TOKEN not set. Requests to HuggingFace may be rejected.")
+        print("WARN: HF_TOKEN not set. Requests to HuggingFace may be rejected.")
 
     all_rewards = []
     all_grades = []
 
     for i in range(args.episodes):
         print(f"\n[Episode {i+1}/{args.episodes}]")
-        result = run_episode(difficulty=args.difficulty)
+        result = run_episode(scenario=args.scenario)
         all_rewards.append(result["total_reward"])
         all_grades.append(result["grade"].get("score", 0.0))
 
