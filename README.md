@@ -28,8 +28,20 @@ We gave a language model control of a live multi-node GPU data center, unpredict
 
 ## 🚀 Live Demo & Evidence
 - **[Hugging Face Space](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer)**: Connect your agent or use the manual dashboard.
-- **[Training notebook (Colab-ready)](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer/blob/main/training/ClusterOps_GRPO_Training.ipynb)**: Unsloth + TRL `SFTTrainer` on expert trajectories from this environment; TensorBoard logs under `outputs/logs`; loss / reward plots at the end of the run.
+- **[Training notebook (Colab-ready)](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer/blob/main/training/ClusterOps_GRPO_Training.ipynb)**: Unsloth + TRL `SFTTrainer` on expert trajectories from this environment, with paired same-seed evaluation and high-DPI loss / reward curves saved under `assets/`.
 - **[Writeup: `Blog.md`](Blog.md)**: Mini-blog for judges.
+
+### Headline Result
+
+On `01_baseline @ easy`, across five paired same-seed episodes per policy:
+
+| Policy | Mean reward | Lift over naive |
+| --- | --- | --- |
+| Naive (always `wait`) | **−546.0** | — |
+| Trained LLM (BC + validation guardrail) | **−28.0** | **+518.0** |
+| Expert teacher (oracle) | **+226.4** | +772.4 |
+
+The trained model **beats the naive baseline on every one of the five paired seeds**, lifting episode reward by **+518** purely from 80 steps of behavioural cloning — roughly two-thirds of the expert's total lift over naive. The remaining 254-point gap to the expert is what on-policy RL (GRPO/PPO via `clusterops/gym_env.py`) is for.
 
 ### Training Progress
 
@@ -50,9 +62,11 @@ We have restructured the codebase for professional-grade deployment:
 │   ├── environment.py      # Main Thermal Environment logic
 │   ├── models.py           # Pydantic Action/Observation schemas
 │   └── gym_env.py          # Gymnasium wrapper for standard RL libs
-├── agents/                 # Inference & Evaluation scripts
+├── agents/                 # Inference, baselines, and the expert teacher
 │   ├── inference.py        # Local LoRA adapter inference
-│   └── baseline_agent.py   # Greedy/Random baseline for comparison
+│   ├── baseline.py         # Greedy / random baselines for comparison
+│   ├── smart_agent.py      # Heuristic expert used to generate BC trajectories
+│   └── client.py           # Thin HTTP client for the OpenEnv server
 ├── server/                 # FastAPI Environment Server
 │   ├── app.py              # Main API server
 │   └── static/             # Premium Dashboard assets (HTML/CSS/JS)
@@ -132,8 +146,8 @@ graph LR
     classDef logic fill:#7f5af0,stroke:#000000,stroke-width:2px,color:#fffffe;
     classDef infra fill:#16161a,stroke:#72757e,stroke-width:2px,color:#94a1b2,stroke-dasharray: 5 5;
 
-    subgraph "H100 Training Node (Colab)"
-        A["GRPO Trainer\n(TRL 0.29.0)"]:::compute
+    subgraph "Colab Training Node"
+        A["SFT Trainer (BC)\n(TRL + Unsloth)"]:::compute
         B["Policy Model\n(Llama/Qwen + LoRA)"]:::compute
     end
 
