@@ -4,7 +4,6 @@ Generate competition-grade training plots for ClusterOps.
 
 Produces:
   - reward_curve.png   — Reward over episodes: baseline vs trained LLM
-  - rubric_scores.png  — Composable rubric breakdown bar chart
 """
 
 import matplotlib
@@ -109,65 +108,7 @@ def generate_reward_curve():
 
 
 
-def generate_rubric_chart():
-    """Composable rubric breakdown: pre vs post training."""
-    dimensions = ["Thermal\nSafety", "Throughput", "Efficiency", "SLA\nCompliance"]
-    weights =     [0.35,           0.30,         0.20,         0.15]
-    baseline =    [0.95,           0.38,         0.30,         0.48]
-    trained =     [0.91,           0.84,         0.76,         0.87]
-
-    weighted_baseline = sum(b * w for b, w in zip(baseline, weights))
-    weighted_trained  = sum(t * w for t, w in zip(trained, weights))
-
-    x = np.arange(len(dimensions))
-    width = 0.32
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    fig.patch.set_facecolor(COLORS["bg"])
-    _style_ax(ax)
-
-    bars_b = ax.bar(x - width / 2, baseline, width,
-                    label=f"Heuristic (total: {weighted_baseline:.2f})",
-                    color=COLORS["gray"], alpha=0.55, edgecolor=COLORS["grid"])
-    bars_t = ax.bar(x + width / 2, trained, width,
-                    label=f"Trained LLM (total: {weighted_trained:.2f})",
-                    color=COLORS["orange"], edgecolor=COLORS["grid"])
-
-    # Value labels on top of bars
-    for bar in bars_b:
-        h = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width() / 2, h + 0.02,
-                f"{h:.2f}", ha="center", va="bottom",
-                fontsize=9, color=COLORS["gray"])
-    for bar in bars_t:
-        h = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width() / 2, h + 0.02,
-                f"{h:.2f}", ha="center", va="bottom",
-                fontsize=9, color=COLORS["orange"])
-
-    # Weight annotations at the bottom
-    for i, w in enumerate(weights):
-        ax.text(i, -0.08, f"(wt: {w:.0%})", ha="center",
-                fontsize=9, color=COLORS["subtext"])
-
-    ax.set_title("Composable Rubric: Pre vs. Post Training", pad=18, **FONT_TITLE)
-    ax.set_xticks(x)
-    ax.set_xticklabels(dimensions, fontsize=12)
-    ax.set_ylabel("Sub-score [0.0 \u2013 1.0]", **FONT_LABEL)
-    ax.set_ylim(-0.12, 1.15)
-    ax.grid(True, axis="y", linestyle=":", color=COLORS["grid"], alpha=0.4)
-    ax.legend(fontsize=11, frameon=True, facecolor="#1E1E1E", edgecolor=COLORS["grid"])
-
-    fig.tight_layout()
-    path = os.path.join(ASSETS_DIR, "rubric_scores.png")
-    fig.savefig(path, dpi=150, facecolor=COLORS["bg"])
-    plt.close(fig)
-    print(f"  [OK] Saved: {path}")
-
-
-
 if __name__ == "__main__":
     print("Generating competition-grade plots...")
     generate_reward_curve()
-    generate_rubric_chart()
     print("Done!")

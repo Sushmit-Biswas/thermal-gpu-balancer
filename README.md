@@ -16,6 +16,8 @@ tags:
 
 # 🔥 ClusterOps: The Thermal GPU Balancer
 
+### Team: SSP Warriors
+
 ### Can an LLM learn thermodynamics logic from scratch?
 
 We gave a language model control of a live multi-node GPU data center, unpredictable incoming job queues, and critical cooling systems. It had no pre-training on fluid dynamics. No prior knowledge of hardware racks. No hardcoded scheduling heuristics. Just thermal sensors and a `/step` endpoint.
@@ -26,7 +28,7 @@ We gave a language model control of a live multi-node GPU data center, unpredict
 
 ## 🚀 Live Demo & Evidence
 - **[Hugging Face Space](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer)**: Connect your agent or use the manual dashboard.
-- **[Training notebook (Colab-ready)](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer/blob/main/training/ClusterOps_GRPO_Training.ipynb)**: Unsloth + TRL `SFTTrainer` on expert trajectories from this environment; TensorBoard logs under `outputs/logs`; loss / reward / rubric plots at the end of the run.
+- **[Training notebook (Colab-ready)](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer/blob/main/training/ClusterOps_GRPO_Training.ipynb)**: Unsloth + TRL `SFTTrainer` on expert trajectories from this environment; TensorBoard logs under `outputs/logs`; loss / reward plots at the end of the run.
 - **[Writeup: `Blog.md`](Blog.md)**: Mini-blog for judges.
 
 ### Training Progress
@@ -37,8 +39,6 @@ We gave a language model control of a live multi-node GPU data center, unpredict
 **Reward Curve**
 ![Reward Curve](assets/reward_curve.png)
 
-**Rubric Breakdown**
-![Rubric Scores](assets/rubric_scores.png)
 
 ---
 
@@ -186,7 +186,7 @@ We use a weighted grading system to prevent reward hacking:
 - **Thermal Safety (35%)**: Penalizes meltdowns (>100°C).
 - **Throughput (30%)**: Rewards job completions.
 - **Efficiency (20%)**: Massive **3x Thrashing Penalty** for allocating/evicting jobs just to reset timers.
-- **SLA Compliance (15%)**: Episode terminates immediately if the queue saturates (prevents stalling).
+- **SLA Compliance (15%)**: Completion-vs-failure ratio (`completed / (completed + failed)`), so it reflects real service quality over the full episode.
 
 ---
 

@@ -498,7 +498,10 @@ class ClusteropsEnvironment(Environment):
         throughput = min(self.completed_jobs / max_possible, 1.0)
         total_jobs_handled = self.completed_jobs + self.evictions
         efficiency = self.completed_jobs / total_jobs_handled if total_jobs_handled > 0 else 1.0
-        sla_compliance = max(0.0, 1.0 - (self.failed_jobs * 0.10))
+        # SLA as a success ratio keeps the signal informative even in long episodes.
+        # It can recover when the agent starts completing more jobs after early failures.
+        sla_total = self.completed_jobs + self.failed_jobs
+        sla_compliance = self.completed_jobs / sla_total if sla_total > 0 else 1.0
 
         total = round(max(0.0, min(1.0, (
             thermal_safety * 0.35 +
