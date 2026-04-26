@@ -31,9 +31,15 @@ We gave a language model control of a live multi-node GPU data center, unpredict
 - **[Mini-Blog / Video Presentation](HUGGING_FACE_POST.md)**: The story behind the agent's evolution.
 
 ### Training Progress
-| Reward Curve | Rubric Breakdown |
-|--------------|------------------|
-| ![Reward Curve](assets/reward_curve.png) | ![Rubric Scores](assets/rubric_scores.png) |
+
+**Loss Curve**
+![Loss Curve](assets/loss_curve.png)
+
+**Reward Curve**
+![Reward Curve](assets/reward_curve.png)
+
+**Rubric Breakdown**
+![Rubric Scores](assets/rubric_scores.png)
 
 ---
 

@@ -805,6 +805,14 @@
   }
 
   // ══════════════ ACTIONS ══════════════
+  const SCENARIO_DESCRIPTIONS = {
+    '01_baseline': 'Standard Operations. All nodes are equal. Jobs arrive at a steady rate. Master the basics of thermal scheduling.',
+    '02_spatial_bleed': 'Rack Thermodynamics active! If any node hits 85°C, it radiates +3°C to its physical neighbors. Watch for cascading heat waves!',
+    '03_heterogeneous': 'Mixed hardware cluster! Even-ID nodes are H100s (2x speed, 2x heat). Odd-ID nodes are T4s (slower, cooler). Match jobs to hardware wisely.',
+    '04_maintenance': 'Scheduled Outage! Nodes 0-4 will go offline at step 35 (warning at step 20). Evacuate jobs before the outage hits!',
+    '05_adversarial': 'DDoS Traffic Spike! Queue starts empty, then 15 VIP jobs drop simultaneously at step 10. Pre-cool nodes to survive the surge!'
+  };
+
   async function resetEnv() {
     try {
       const scenario = document.getElementById('scenario-select').value;
@@ -814,26 +822,99 @@
       document.getElementById('gpu-grid').innerHTML = '';
       logCount = 0;
       state.done = false;
+      lastObs = null;
 
       updatePills(scenario);
+      updateScenarioInfo(scenario);
 
       const data = await apiPost('/reset', { scenario });
+      // Cache observation so the smart agent has it on its first auto-step
+      lastObs = data.observation || {};
       renderState(data);
       toast(`Reset to ${scenario}`, 'success');
     } catch (e) { toast(e.message, 'error'); }
   }
 
+  function updateScenarioInfo(scenario) {
+    let banner = document.getElementById('scenario-info-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'scenario-info-banner';
+      banner.style.cssText = 'padding:12px 18px;border-radius:10px;margin-bottom:16px;font-size:13px;line-height:1.5;border:1px solid var(--border);background:var(--surface-2);color:var(--text-muted);transition:all 0.3s;';
+      const pills = document.getElementById('scenario-pills');
+      pills.parentNode.insertBefore(banner, pills.nextSibling);
+    }
+    const desc = SCENARIO_DESCRIPTIONS[scenario] || '';
+    const colors = {
+      '01_baseline': 'var(--green)',
+      '02_spatial_bleed': 'var(--yellow)',
+      '03_heterogeneous': 'var(--cyan)',
+      '04_maintenance': 'var(--red)',
+      '05_adversarial': 'var(--accent)'
+    };
+    banner.style.borderColor = colors[scenario] || 'var(--border)';
+    banner.innerHTML = `<strong style="color:${colors[scenario] || 'var(--text)'}">${scenario.replace('_', ' ').toUpperCase()}:</strong> ${desc}`;
+  }
+
+  // ── Cached last observation for the smart agent ──
+  let lastObs = null;
+
   async function stepAuto() {
     if (state.done) { stopAuto(); return; }
     try {
-      const obs = await apiGet('/state').catch(() => null);
-      // Simple greedy: allocate first job to first idle node, else wait
-      const data = await apiPost('/step', { action_type: 'wait' });
+      // Use the smart heuristic agent to pick the best action
+      const action = pickSmartAction(lastObs);
+      const data = await apiPost('/step', action);
+      // Cache observation for next decision
+      lastObs = data.observation || {};
       // Fetch rubric separately for rich render
       const rubric = await apiGet('/grader/rubric').catch(() => ({}));
       data.metadata = { ...(data.metadata || {}), rubric };
       renderState(data);
     } catch (e) { toast(e.message, 'error'); stopAuto(); }
+  }
+
+  /**
+   * Smart Heuristic Agent — mirrors the expert logic used for training data.
+   * Priority order:
+   *   1. EVICT any busy node >= 90°C (prevent meltdown)
+   *   2. COOLDOWN any idle node >= 70°C (proactive cooling)
+   *   3. ALLOCATE first queued job to the coolest idle node
+   *   4. WAIT if nothing else to do
+   */
+  function pickSmartAction(obs) {
+    if (!obs) return { action_type: 'wait' };
+    const nodes = obs.gpu_nodes || [];
+    const queue = obs.job_queue || [];
+
+    // 1. Emergency eviction — prevent meltdowns
+    for (const n of nodes) {
+      if (n.status === 'busy' && n.temperature >= 90.0) {
+        return { action_type: 'evict', node_id: n.id };
+      }
+    }
+
+    // 2. Proactive force-cool hot idle nodes
+    for (const n of nodes) {
+      if (n.status === 'idle' && n.temperature >= 70.0) {
+        return { action_type: 'cooldown', node_id: n.id };
+      }
+    }
+
+    // 3. Allocate jobs to coolest idle nodes
+    if (queue.length > 0) {
+      const idleNodes = nodes.filter(n => n.status === 'idle').sort((a, b) => a.temperature - b.temperature);
+      if (idleNodes.length > 0) {
+        return {
+          action_type: 'allocate',
+          job_id: queue[0].id,
+          node_id: idleNodes[0].id
+        };
+      }
+    }
+
+    // 4. Nothing to do
+    return { action_type: 'wait' };
   }
 
   async function manualStep() {
