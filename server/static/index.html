@@ -640,6 +640,7 @@
   // ══════════════ RENDER ══════════════
   function renderState(data) {
     const obs = data.observation || data;
+    lastObs = obs; // Guarantee agent always acts on the absolute latest state
     const meta = data.metadata || obs.metadata || {};
     const rubric = meta.rubric || {};
     const reward = data.reward ?? 0;
@@ -828,8 +829,6 @@
       updateScenarioInfo(scenario);
 
       const data = await apiPost('/reset', { scenario });
-      // Cache observation so the smart agent has it on its first auto-step
-      lastObs = data.observation || {};
       renderState(data);
       toast(`Reset to ${scenario}`, 'success');
     } catch (e) { toast(e.message, 'error'); }
@@ -865,8 +864,6 @@
       // Use the smart heuristic agent to pick the best action
       const action = pickSmartAction(lastObs);
       const data = await apiPost('/step', action);
-      // Cache observation for next decision
-      lastObs = data.observation || {};
       // Fetch rubric separately for rich render
       const rubric = await apiGet('/grader/rubric').catch(() => ({}));
       data.metadata = { ...(data.metadata || {}), rubric };
