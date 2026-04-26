@@ -858,8 +858,10 @@
   // ── Cached last observation for the smart agent ──
   let lastObs = null;
 
+  let isFetching = false;
   async function stepAuto() {
-    if (state.done) { stopAuto(); return; }
+    if (!isAutoRunning || state.done || isFetching) return;
+    isFetching = true;
     try {
       // Use the smart heuristic agent to pick the best action
       const action = pickSmartAction(lastObs);
@@ -869,6 +871,13 @@
       data.metadata = { ...(data.metadata || {}), rubric };
       renderState(data);
     } catch (e) { toast(e.message, 'error'); stopAuto(); }
+    finally {
+      isFetching = false;
+      if (isAutoRunning && !state.done) {
+        const speed = parseInt(document.getElementById('auto-speed').value);
+        autoTimer = setTimeout(stepAuto, speed);
+      }
+    }
   }
 
   /**
@@ -900,7 +909,11 @@
 
     // 3. Allocate jobs to coolest idle nodes
     if (queue.length > 0) {
-      const idleNodes = nodes.filter(n => n.status === 'idle').sort((a, b) => a.temperature - b.temperature);
+      const idleNodes = nodes.filter(n => n.status === 'idle').sort((a, b) => {
+        // Load balancing: if temperature difference is negligible, pick randomly.
+        if (Math.abs(a.temperature - b.temperature) < 0.2) return Math.random() - 0.5;
+        return a.temperature - b.temperature;
+      });
       if (idleNodes.length > 0) {
         return {
           action_type: 'allocate',
@@ -942,13 +955,12 @@
     isAutoRunning = true;
     document.getElementById('btn-auto').textContent = '⏸ Pause Auto';
     document.getElementById('btn-auto').style.borderColor = 'var(--yellow)';
-    const speed = parseInt(document.getElementById('auto-speed').value);
-    autoTimer = setInterval(stepAuto, speed);
+    stepAuto();
   }
 
   function stopAuto() {
     isAutoRunning = false;
-    clearInterval(autoTimer);
+    clearTimeout(autoTimer);
     document.getElementById('btn-auto').textContent = '▶ Start Auto';
     document.getElementById('btn-auto').style.borderColor = '';
   }
@@ -967,6 +979,7 @@
 
   function changeScenario() {
     updatePills(document.getElementById('scenario-select').value);
+    resetEnv();
   }
 
   function updatePills(active) {
