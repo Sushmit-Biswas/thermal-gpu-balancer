@@ -27,8 +27,9 @@ We gave a language model control of a live multi-node GPU data center, unpredict
 ## 🚀 Live Demo & Evidence
 - **[Hugging Face Space](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer)**: Connect your agent or use the manual dashboard.
 - **[Live Interactive Dashboard](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer/dashboard)**: Monitor the cluster thermals in real-time with our sleek dark-mode UI.
-- **[Evidence of Training (Colab)](training/ClusterOps_GRPO_Training.ipynb)**: View the GRPO training curves and reward improvements.
-- **[Mini-Blog / Video Presentation](HUGGING_FACE_POST.md)**: The story behind the agent's evolution.
+- **[Training notebook (Colab-ready)](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer/blob/main/training/ClusterOps_GRPO_Training.ipynb)**: Unsloth + TRL `SFTTrainer` on expert trajectories from this environment; TensorBoard logs under `outputs/logs`; loss / reward / rubric plots at the end of the run.
+- **[Writeup: `Blog.md`](Blog.md)**: Mini-blog for judges.
+- **[Legacy one-pager](HUGGING_FACE_POST.md)**: Short HF-style post (superseded by `Blog.md` for structure and accuracy).
 
 ### Training Progress
 
@@ -58,7 +59,7 @@ We have restructured the codebase for professional-grade deployment:
 │   ├── app.py              # Main API server
 │   └── static/             # Premium Dashboard assets (HTML/CSS/JS)
 ├── training/               # Training Pipeline
-│   └── GRPO_Training.ipynb # Meta GRPO + Unsloth Training Notebook
+│   └── ClusterOps_GRPO_Training.ipynb # Colab: Unsloth + TRL SFT (expert BC) + eval + plots
 ├── tools/                  # Utility scripts
 │   ├── generate_plots.py   # Visualizing reward/loss curves
 │   └── run_groq_test.py    # Remote Groq-powered API connectivity test
@@ -194,7 +195,7 @@ We use a weighted grading system to prevent reward hacking:
 ## 💡 Key Design Decisions
 1. **Deterministic Physics over Mock API:** Our cluster physically tracks internal heat dissipation natively, forcing the RL LLM to deduce physics constraints.
 2. **Co-evolutionary Sandbox:** We intentionally allowed early models to find loopholes, using them to discover API constraints and establish better anti-reward-hacking metrics.
-3. **GRPO > PPO:** GRPO successfully correlates relative success across 8 parallel rollouts, ensuring stable advantages for sparse SLA rewards.
+3. **Stable fine-tuning first:** The Colab notebook uses **expert behavioral cloning (SFT)** on HTTP rollouts against this server so judges get a reproducible run; the same rubric supports on-policy RL (e.g. GRPO/PPO via Gymnasium) as a follow-on.
 4. **No Hints:** The agent is given no spatial layout graph; it must parse this state natively.
 
 ---

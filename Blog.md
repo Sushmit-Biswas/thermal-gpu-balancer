@@ -57,10 +57,10 @@ We fought back by implementing OpenEnv logic:
 
 By step 200 of RL tuning, the agent learned **Proactive Buffering**. Instead of waiting for a node to hit 95°C, it learned to `cooldown` nodes when the queue was light, preparing a thermal buffer for incoming spikes!
 
-*([See our Training Notebook on GitHub](https://github.com/Sushmit-Biswas/thermal-gpu-balancer/blob/main/training/ClusterOps_GRPO_Training.ipynb) for the full GRPO training loop, WandB experimental tracking, and high-DPI loss/reward curves!)*
+*([See our Training Notebook](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer/blob/main/training/ClusterOps_GRPO_Training.ipynb) for the full GRPO training loop, WandB experimental tracking, and high-DPI loss/reward curves!)*
 
 ### Live Dashboard
 We built a highly responsive, animated frontend inside the OpenEnv server. Visit our Space to watch an episode run, select different scenarios, or try to schedule jobs manually and beat the LLM!
 
 ---
-*Created by Team ClusterOps for the Meta-Llama OpenEnv Hackathon.*
+*Created by Team SSP Warriors for the Meta OpenEnv India Hackathon - 2026.*
