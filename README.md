@@ -26,10 +26,8 @@ We gave a language model control of a live multi-node GPU data center, unpredict
 
 ## 🚀 Live Demo & Evidence
 - **[Hugging Face Space](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer)**: Connect your agent or use the manual dashboard.
-- **[Live Interactive Dashboard](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer/dashboard)**: Monitor the cluster thermals in real-time with our sleek dark-mode UI.
 - **[Training notebook (Colab-ready)](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer/blob/main/training/ClusterOps_GRPO_Training.ipynb)**: Unsloth + TRL `SFTTrainer` on expert trajectories from this environment; TensorBoard logs under `outputs/logs`; loss / reward / rubric plots at the end of the run.
 - **[Writeup: `Blog.md`](Blog.md)**: Mini-blog for judges.
-- **[Legacy one-pager](HUGGING_FACE_POST.md)**: Short HF-style post (superseded by `Blog.md` for structure and accuracy).
 
 ### Training Progress
 
