@@ -59,7 +59,6 @@ We have restructured the codebase for professional-grade deployment:
 ├── training/               # Training Pipeline
 │   └── ClusterOps_GRPO_Training.ipynb # Colab: Unsloth + TRL SFT (expert BC) + eval + plots
 ├── tools/                  # Utility scripts
-│   ├── generate_plots.py   # Visualizing reward/loss curves
 │   └── run_groq_test.py    # Remote Groq-powered API connectivity test
 ├── tests/                  # Standardized pytest suite (78+ cases)
 ├── assets/                 # Training plots and media
