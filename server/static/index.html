@@ -921,9 +921,14 @@
     if (state.done) { toast('Episode is done. Reset first.', 'warn'); return; }
     const type = document.getElementById('action-type').value;
     const job_id = document.getElementById('action-job-id').value.trim();
-    const node_id = parseInt(document.getElementById('action-node-id').value) || -1;
+    if (type === 'allocate' && !job_id) {
+      toast('Please enter a job_id (e.g., job_1)', 'warn');
+      return;
+    }
+    const node_id = parseInt(document.getElementById('action-node-id').value);
+    const finalNodeId = isNaN(node_id) ? -1 : node_id;
     try {
-      const data = await apiPost('/step', { action_type: type, job_id, node_id });
+      const data = await apiPost('/step', { action_type: type, job_id, node_id: finalNodeId });
       const rubric = await apiGet('/grader/rubric').catch(() => ({}));
       data.metadata = { ...(data.metadata || {}), rubric };
       renderState(data);
