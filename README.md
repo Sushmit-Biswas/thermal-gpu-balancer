@@ -45,11 +45,15 @@ The trained model **beats the naive baseline on every one of the five paired see
 
 ### Training Progress
 
-**Loss Curve**
+**Training Loss convergence**
 ![Loss Curve](assets/loss_curve.png)
 
-**Reward Curve**
+**Episode Return (Paired seeds)**
 ![Reward Curve](assets/reward_curve.png)
+
+- **Loss curve:** Shows the per-step SFT training loss across 80 steps. The smooth line (moving average) indicates healthy convergence as the model learns to replicate expert JSON actions.
+- **Reward curve:** A fair, apples-to-apples comparison on 5 fixed seeds. The trained LLM significantly outperforms the "naive" baseline, capturing a major portion of the reward delta compared to the expert teacher.
+
 
 
 ---

@@ -72,7 +72,17 @@ Evaluating a 1B model honestly is harder than training one, especially when the 
 1. **Paired seeds.** All three policies (naive, expert, trained) run on the same five fixed seeds. Same job arrivals, same initial temperatures. Anything else gives you noise that's bigger than the signal you're trying to measure.
 2. **Action-validation guardrail.** Malformed model outputs (e.g. `allocate` to a busy node, or a string where a node id should be) get downgraded to `wait` with 0 reward, instead of racking up -5 invalid-action penalties for the rest of the episode. The model still picks every meaningful action; the guardrail is the same kind of safety net you'd put in front of any LLM-driven controller in production.
 
-Loss and reward curves end up under `assets/loss_curve.png` and `assets/reward_curve.png` after the notebook finishes.
+### Training Progress
+
+Two high-DPI plots summarize the convergence of the model and its performance compared to the teacher:
+
+| **Training Loss convergence** | **Episode Return (Paired seeds)** |
+|:---:|:---:|
+| ![Loss Curve](assets/loss_curve.png) | ![Reward Curve](assets/reward_curve.png) |
+
+- **Loss curve:** Shows the per-step SFT training loss across 80 steps. The smooth line (moving average) indicates healthy convergence as the model learns to replicate expert JSON actions.
+- **Reward curve:** A fair, apples-to-apples comparison on 5 fixed seeds. The trained LLM significantly outperforms the "naive" baseline, capturing a major portion of the reward delta compared to the expert teacher.
+
 
 ## The Path Ahead: Future Horizons
 
@@ -84,9 +94,10 @@ The results from our initial sprint are incredibly promising, and they point the
 
 If you want to poke at any of this:
 
-- **Live demo:** [neer-biswas/thermal-gpu-balancer](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer)
-- **Repo:** [Sushmit-Biswas/thermal-gpu-balancer](https://github.com/Sushmit-Biswas/thermal-gpu-balancer)
-- **Notebook:** `training/ClusterOps_GRPO_Training.ipynb`
+- **Live Dashboard:** [neer-biswas/thermal-gpu-balancer](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer)
+- **GitHub Repo:** [Sushmit-Biswas/thermal-gpu-balancer](https://github.com/Sushmit-Biswas/thermal-gpu-balancer)
+- **README (with Mermaid diagrams):** [README.md](https://github.com/Sushmit-Biswas/thermal-gpu-balancer/blob/main/README.md)
+- **Training Notebook:** [ClusterOps_GRPO_Training.ipynb](https://huggingface.co/spaces/neer-biswas/thermal-gpu-balancer/blob/main/training/ClusterOps_GRPO_Training.ipynb)
 
 ---
 
