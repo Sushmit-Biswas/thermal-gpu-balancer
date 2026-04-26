@@ -104,7 +104,7 @@ During training, we found the agent learned the SLA rules *too* well. It discove
 
 ---
 
-## ⚙️ How It Works
+## ⚙️ How It Works (Mermaid Diagrams)
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {'background': '#0d1117'}}}%%
@@ -136,7 +136,7 @@ graph TD
 
 ---
 
-## 🏛 Architecture
+## 🏛 Architecture (Mermaid Diagrams)
 
 ```mermaid
 %%{init: {'theme':'dark'}}%%

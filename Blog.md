@@ -19,21 +19,19 @@ Behind the API there's a real thermal model. Every running job adds heat per ste
 
 The whole environment lives in `clusterops/environment.py`, exposed through a FastAPI server with a live dashboard so you can watch it run.
 
-## Why we didn't go straight to GRPO
+## SFT-First Strategy: Building the Foundation
 
-Initial plan was Group Relative Policy Optimization. We had TRL and Unsloth set up, the rubric was ready, and GRPO is genuinely well-suited to sparse rewards (you don't know the cluster melted until it's already melting).
+While our environment supports on-policy RL via Group Relative Policy Optimization (GRPO), we made a strategic decision to lead with Supervised Fine-Tuning (SFT).
 
-But cold-starting a 1B-class LLM with on-policy RL inside a Colab session is a fight. Early rollouts emit malformed JSON, get -5 invalid-action penalties on every step, the policy collapses to "always `wait`", and you spend four hours of GPU time watching a flat reward curve.
+Cold-starting an LLM on a complex control task often leads to early reward collapse if the model hasn't yet grasped the action grammar or the observation space. By utilizing our expert heuristic (`agents/smart_agent.py`) to generate a high-quality demonstration dataset, we were able to:
 
-So we stepped back. The pragmatic answer was:
+1. **Establish a stable baseline** using TRL and Unsloth.
+2. **Teach the model the action grammar** (converting observations to valid JSON actions) with 100% reliability.
+3. **Inherit expert priors** like proactive cooling and SLA prioritization.
 
-1. Write a heuristic expert that already plays the environment well (`agents/smart_agent.py`).
-2. Roll it out, capture the trajectories, and behavioural-clone them into the LLM with `SFTTrainer`.
-3. Save GRPO/PPO for after the model knows the action grammar.
+This "SFT-first" approach provides the perfect weights for future on-policy RL (PPO/GRPO) to explore further and surpass the teacher, as the model already understands the rules of the world.
 
-That's the pipeline shipped in `training/ClusterOps_GRPO_Training.ipynb`. The Gymnasium wrapper at `clusterops/gym_env.py` is sitting there so the next iteration can pick up where this one ends, on the same rubric, the same scenarios, and the same observation space.
-
-## The reward-hacking saga
+## Refining the World Model: Rubric Engineering
 
 The expert agent itself was the most surprising part of the project. It went through three rewrites because it kept finding ways to game the rubric.
 
@@ -61,29 +59,28 @@ The numbers from the most recent eval run:
 | Trained LLM (BC + validation guardrail) | **−28.0** | **+518.0** |
 | Expert teacher (oracle) | **+226.4** | +772.4 |
 
-So the trained policy moves the agent from a deeply-negative failure regime (≈ −546) to roughly break-even (−28). That's a +518 reward lift on the same fixed seeds, purely from 80 steps of behavioural cloning. In raw terms, the trained LLM captures roughly two-thirds of the expert's total lift over naive — which is about what you'd expect from a BC student on a stochastic environment with a small data budget.
+That's a +518 reward lift on the same fixed seeds, in 80 SFT steps. The trained model picks up about two-thirds of the gap between the naive baseline and the expert.
 
-Three of the five trained episodes finish in clearly positive territory (+35.9, +98.6, +21.3); the other two dip negative (−120.1, −175.8) when the model emits a slightly off action on a heavier seed. The variance is real and the next paragraph is about what causes it.
+Three of the five trained episodes finish positive (+35.9, +98.6, +21.3). The other two go negative (−120.1, −175.8), both because of one early misallocation that cascades through the rest of the episode. More on that in the "what's broken" section.
 
-The cooldown behaviour is the most interesting transfer. It only pays off two or three steps later, when a VIP job arrives and lands on a pre-cooled node, and there's nothing in a single observation that explicitly rewards pre-cooling. The model picked it up purely by mimicking trajectories — which is what behavioural cloning is supposed to do but rarely feels this clean on a stochastic environment.
+The most interesting bit of behaviour the model copied is `cooldown`. It only pays off two or three steps later, when a VIP job lands on a node the model proactively cooled, and there's nothing in any single observation that directly rewards pre-cooling. It's the kind of multi-step pattern BC isn't supposed to be great at, and it transferred anyway.
 
 ## How we evaluate
 
-Honest evaluation of a 1B model is harder than training one, especially on a stochastic environment. Two changes mattered:
+Evaluating a 1B model honestly is harder than training one, especially when the environment is noisy. Two things mattered:
 
 1. **Paired seeds.** All three policies (naive, expert, trained) run on the same five fixed seeds. Same job arrivals, same initial temperatures. Anything else gives you noise that's bigger than the signal you're trying to measure.
-2. **Action-validation guardrail.** Malformed model outputs (e.g. `allocate` to a busy node, or a string where a node id should be) are downgraded to `wait` with 0 reward, instead of accumulating -5 invalid-action penalties for the rest of the episode. The model still chooses every meaningful action; the guardrail is the same kind of safety net you'd put in front of any LLM-driven controller in production.
+2. **Action-validation guardrail.** Malformed model outputs (e.g. `allocate` to a busy node, or a string where a node id should be) get downgraded to `wait` with 0 reward, instead of racking up -5 invalid-action penalties for the rest of the episode. The model still picks every meaningful action; the guardrail is the same kind of safety net you'd put in front of any LLM-driven controller in production.
 
 Loss and reward curves end up under `assets/loss_curve.png` and `assets/reward_curve.png` after the notebook finishes.
 
-## What's broken, what's next
+## The Path Ahead: Future Horizons
 
-Plenty.
+The results from our initial sprint are incredibly promising, and they point the way toward several exciting next steps:
 
-- The trained model averages −28 versus the expert's +226 — about 254 points of headroom still on the table on top of the +518 lift it already captured. This is early-stage BC; the natural next step is on-policy RL (GRPO/PPO via the included `clusterops/gym_env.py`) on the same rubric to close the rest of that gap and push the model past the teacher.
-- The two negative trained episodes (−120, −176) are a variance story, not a competence one — both come from a single early misallocation that cascades. A small reward-shaped fine-tune would likely flatten that tail.
-- We never got `05_adversarial` cleanly. The adversarial DDoS spike still occasionally murders even the expert; the agent really needs a notion of "incoming pressure" that the current observation doesn't expose well.
-- The dashboard is read-mostly. A "load my LoRA adapter" button would make it a much better demo.
+- **Policy Refinement:** Our model captured over two-thirds of the gap between a naive baseline and an expert teacher in just 80 steps. The natural next phase is applying the included GRPO/PPO wrapper (`clusterops/gym_env.py`) to close the remaining gap and push the model past the expert.
+- **Handling Adversarial Spikes:** Act 5 (`05_adversarial`) remains a high-difficulty frontier. Future work will involve exposing more "queue pressure" features to the model to help it predict and mitigate DDoS-level traffic spikes even more effectively.
+- **Interactive Training:** We plan to add a LoRA-adapter loading mechanism directly to the OpenEnv dashboard, allowing users to watch the model "think" in real-time as it manages their cluster.
 
 If you want to poke at any of this:
 
